@@ -1,0 +1,5 @@
+plugins { id 'taack-grails-assets-plugin' }
+// Add include 'serverAdmin' and project(':serverAdmin').projectDir = file('app/server-admin')
+// to the host settings.gradle, then add implementation project(':serverAdmin')
+// to the host server's dependencies (matching the Materials module integration).
+grails { plugins { implementation project(':crew'); implementation project(':plm'); implementation project(':PM_module_materials') } }
