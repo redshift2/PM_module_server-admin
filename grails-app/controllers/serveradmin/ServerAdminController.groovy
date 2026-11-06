@@ -11,6 +11,11 @@ class ServerAdminController {
     ServerAdminMaintenanceService serverAdminMaintenanceService
     ServerAdminModuleInfoService serverAdminModuleInfoService
     ServerAdminMaterialsService serverAdminMaterialsService
+    ServerEventService serverEventService
+    ServerJobService serverJobService
+    ServerJobPackageService serverJobPackageService
+    ServerEventActionService serverEventActionService
+    ServerAdminEmailService serverAdminEmailService
 
     private boolean admin() {
         SecurityContextHolder.context?.authentication?.authorities?.any { it.authority == 'ROLE_ADMIN' } ?: false
@@ -25,7 +30,90 @@ class ServerAdminController {
         render(view: 'index', model: [tab: 'info', modules: modules, isAdmin: admin()])
     }
 
-    def jobQueue() { render(view: 'index', model: [tab: 'jobs', isAdmin: admin()]) }
+    def jobQueue() {
+        render(view: 'index', model: [tab: 'jobs', isAdmin: admin(), jobs: serverJobService.recent()])
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def submitJob() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            serverJobService.submit(params.jobType as String,
+                springSecurityService.currentUser?.username as String)
+            flash.message = 'Job submitted to queue. Execution worker is not configured yet.'
+        } catch (Exception ex) {
+            flash.error = ex.message
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/jobQueue')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def events() {
+        render(view: 'index', model: [tab: 'events', isAdmin: true, events: serverEventService.recent(), rules: ServerEventRule.list(sort:'id', order:'desc'), actions: serverEventActionService.recent()])
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def createEventRule() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            String type = params.eventType as String
+            String action = params.actionType as String
+            String dest = (params.destination ?: '') as String
+            if (!(type in ServerEventService.KNOWN_TYPES)) throw new IllegalArgumentException('Unknown event type')
+            if (!(action in ['LOG','EMAIL','SUBMIT_JOB'])) throw new IllegalArgumentException('Unknown action')
+            if (action == 'EMAIL' && !dest.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')) throw new IllegalArgumentException('Valid email recipient required')
+            if (action == 'SUBMIT_JOB' && !(dest in ServerJobService.SUPPORTED_TYPES)) throw new IllegalArgumentException('Unsupported job type')
+            new ServerEventRule(name: params.name, eventType:type, actionType:action, destination:dest).save(failOnError:true, flush:true)
+            flash.message = 'Event rule saved.'
+        } catch (Exception ex) { flash.error = ex.message }
+        response.sendRedirect(request.contextPath + '/serverAdmin/events')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def sendEventEmail() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try { serverEventActionService.dispatchEmail(params.long('id')); flash.message = 'Email sent.' }
+        catch (Exception ex) { flash.error = 'Email delivery failed: ' + ex.message }
+        response.sendRedirect(request.contextPath + '/serverAdmin/events')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def testEmail() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            serverAdminEmailService.send(params.to as String, 'Server Administration SMTP test', 'SMTP connection test from Server Administration.')
+            flash.message = 'Test email sent.'
+        } catch (Exception ex) { flash.error = 'SMTP test failed: ' + ex.message }
+        response.sendRedirect(request.contextPath + '/serverAdmin/emailServer')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def submitPackageJob() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        ServerJob job
+        try {
+            MultipartFile upload = request.getFile('file')
+            job = serverJobService.submit('REMOTE_PACKAGE', springSecurityService.currentUser?.username as String)
+            job.packageFileName = serverJobPackageService.store(upload, job.id)
+            job.save(failOnError:true, flush:true)
+            flash.message = 'ZIP job queued. Remote worker dispatch is not yet implemented.'
+        } catch (Exception ex) {
+            if (job) { job.delete(flush:true) }
+            flash.error = 'Job submission failed: ' + ex.message
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/jobQueue')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def emailServer() {
+        // SMTP secrets must come from environment / external secret store, not from a GSP or DB.
+        render(view: 'index', model: [tab: 'email', isAdmin: true,
+            smtpHost: System.getenv('SERVER_ADMIN_SMTP_HOST') ?: '',
+            smtpPort: System.getenv('SERVER_ADMIN_SMTP_PORT') ?: '',
+            smtpFrom: System.getenv('SERVER_ADMIN_SMTP_FROM') ?: '',
+            smtpConfigured: !!System.getenv('SERVER_ADMIN_SMTP_HOST')])
+    }
+
 
     @Secured(['ROLE_ADMIN'])
     def authorization() { render(view: 'index', model: [tab: 'auth', isAdmin: true]) }
