@@ -7,11 +7,10 @@ import org.springframework.transaction.annotation.Propagation
 /** Submission API. A separate worker will be added before jobs execute. */
 @Transactional
 class ServerJobService {
-    static final Set<String> SUPPORTED_TYPES = ['MAINTENANCE_REVIEW', 'EVENT_REPORT', 'REMOTE_PACKAGE', 'CAD_TO_GLB'].asImmutable()
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     ServerJob submit(String jobType, String submittedBy, Map params = [:]) {
-        if (!(jobType in SUPPORTED_TYPES)) throw new IllegalArgumentException('Unsupported job type')
+        if (!WorkerScript.findByJobTypeAndEnabled(jobType, true)) throw new IllegalArgumentException('No enabled worker script for job type: ' + jobType)
         String json = JsonOutput.toJson(params ?: [:])
         if (json.length() > 4000) throw new IllegalArgumentException('Job parameters too long')
         new ServerJob(jobType: jobType, submittedBy: submittedBy, parametersJson: json,

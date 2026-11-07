@@ -29,6 +29,8 @@ class WorkerScriptService {
     void setEnabled(Long id, boolean enabled) {
         WorkerScript script = WorkerScript.get(id)
         if (!script) throw new IllegalArgumentException('Script not found')
+        if (enabled && WorkerScript.findAllByJobTypeAndEnabled(script.jobType, true).any { it.id != script.id })
+            throw new IllegalStateException('An enabled script already owns job type: ' + script.jobType)
         script.enabled = enabled
         script.save(failOnError:true,flush:true)
     }

@@ -115,6 +115,17 @@ class WorkerDispatchService {
                     job.save(failOnError:true,flush:true)
                 }
             }
+            else if (job.jobType != 'REMOTE_PACKAGE') {
+                try {
+                    grailsApplication.mainContext.getBean('plmGeneratedAttachmentImportService')
+                        .importJobResult(job, dir.resolve(name))
+                } catch (Exception ex) {
+                    log.error('Generated attachment import failed for job ' + job.id, ex)
+                    job.status = 'FAILED'
+                    job.resultMessage = ('Attachment import failed: ' + ex.message).take(2000)
+                    job.save(failOnError:true, flush:true)
+                }
+            }
         } finally { Files.deleteIfExists(tmp) }
     }
 }
