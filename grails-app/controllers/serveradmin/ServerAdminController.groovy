@@ -16,6 +16,9 @@ class ServerAdminController {
     ServerJobPackageService serverJobPackageService
     ServerEventActionService serverEventActionService
     ServerAdminEmailService serverAdminEmailService
+    RemoteWorkerService remoteWorkerService
+    WorkerScriptService workerScriptService
+    WorkerDispatchService workerDispatchService
 
     private boolean admin() {
         SecurityContextHolder.context?.authentication?.authorities?.any { it.authority == 'ROLE_ADMIN' } ?: false
@@ -35,12 +38,27 @@ class ServerAdminController {
     }
 
     @Secured(['ROLE_ADMIN'])
+    def deleteQueuedJob() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            Long jobId = params.long('id')
+            if (jobId == null) throw new IllegalArgumentException('Job ID required')
+            serverJobService.deleteJob(jobId)
+            flash.message = 'Job #' + jobId + ' deleted.'
+        } catch (Exception ex) {
+            log.warn('Job deletion failed', ex)
+            flash.error = 'Unable to delete job: ' + ex.message
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/jobQueue')
+    }
+
+    @Secured(['ROLE_ADMIN'])
     def submitJob() {
         if (request.method != 'POST') { response.sendError(405); return }
         try {
             serverJobService.submit(params.jobType as String,
                 springSecurityService.currentUser?.username as String)
-            flash.message = 'Job submitted to queue. Execution worker is not configured yet.'
+            flash.message = 'Job submitted to queue.'
         } catch (Exception ex) {
             flash.error = ex.message
         }
@@ -94,11 +112,15 @@ class ServerAdminController {
         try {
             MultipartFile upload = request.getFile('file')
             job = serverJobService.submit('REMOTE_PACKAGE', springSecurityService.currentUser?.username as String)
-            job.packageFileName = serverJobPackageService.store(upload, job.id)
-            job.save(failOnError:true, flush:true)
-            flash.message = 'ZIP job queued. Remote worker dispatch is not yet implemented.'
+            String storedFileName = serverJobPackageService.store(upload, job.id)
+            serverJobService.setPackageFileName(job.id as Long, storedFileName)
+            flash.message = 'ZIP job queued for an approved worker.'
         } catch (Exception ex) {
-            if (job) { job.delete(flush:true) }
+            log.error('ZIP job submission failed', ex)
+            if (job?.id) {
+                try { serverJobService.deleteJob(job.id as Long) }
+                catch (Exception cleanupEx) { log.error('Failed to clean up job ' + job.id, cleanupEx) }
+            }
             flash.error = 'Job submission failed: ' + ex.message
         }
         response.sendRedirect(request.contextPath + '/serverAdmin/jobQueue')
@@ -114,6 +136,149 @@ class ServerAdminController {
             smtpConfigured: !!System.getenv('SERVER_ADMIN_SMTP_HOST')])
     }
 
+
+    @Secured(['ROLE_ADMIN'])
+    def workers() {
+        render(view:'index', model:[tab:'workers', isAdmin:true,
+            workers:RemoteWorker.list(sort:'dateCreated',order:'desc'),
+            scripts:WorkerScript.list(sort:'dateCreated',order:'desc')])
+    }
+
+    @Secured(['permitAll'])
+    def registerWorker() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            if ((request.contentLengthLong ?: 0) > 8192) { response.sendError(413); return }
+            def body = request.JSON
+            RemoteWorker worker = remoteWorkerService.register(body as Map)
+            render(contentType:'application/json', text:groovy.json.JsonOutput.toJson(
+                [workerId:worker.workerId, status:worker.status]))
+        } catch (Exception ex) { response.sendError(400, 'Registration rejected') }
+    }
+
+    @Secured(['permitAll'])
+    def workerHeartbeat() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            def body = request.JSON
+            RemoteWorker worker = remoteWorkerService.verifyHeartbeat(
+                body.workerId as String, body.timestamp as String,
+                body.nonce as String, body.signature as String)
+            render(contentType:'application/json', text:groovy.json.JsonOutput.toJson(
+                [status:'APPROVED', serverTime:System.currentTimeMillis()]))
+        } catch (Exception ex) { response.sendError(403, 'Worker authentication failed') }
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def setWorkerStatus() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try { remoteWorkerService.setStatus(params.long('id'), params.status as String); flash.message = 'Worker status updated.' }
+        catch(Exception ex) { flash.error = ex.message }
+        response.sendRedirect('/serverAdmin/workers')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def uploadWorkerScript() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            workerScriptService.upload(request.getFile('file'), params.name as String,
+                params.version as String, params.jobType as String,
+                springSecurityService.currentUser?.username as String)
+            flash.message = 'Script uploaded, disabled until explicitly enabled.'
+        } catch(Exception ex) { flash.error = ex.message }
+        response.sendRedirect('/serverAdmin/workers')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def setWorkerScriptEnabled() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try { workerScriptService.setEnabled(params.long('id'), params.enabled == 'true'); flash.message = 'Script updated.' }
+        catch(Exception ex) { flash.error = ex.message }
+        response.sendRedirect('/serverAdmin/workers')
+    }
+
+    private RemoteWorker signedWorker(String operation, String payloadHash) {
+        remoteWorkerService.verifyRequest(
+            request.getHeader('X-Worker-Id'), request.getHeader('X-Worker-Timestamp'),
+            request.getHeader('X-Worker-Nonce'), request.getHeader('X-Worker-Signature'),
+            operation, payloadHash)
+    }
+
+    private void workerJson(Map value) {
+        render(contentType:'application/json', text:groovy.json.JsonOutput.toJson(value))
+    }
+
+    @Secured(['permitAll'])
+    def workerPoll() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try { workerJson(workerDispatchService.claim(signedWorker('poll','-'))) }
+        catch (SecurityException ex) { response.sendError(403) }
+        catch (Exception ex) { log.error('Worker poll failed',ex); response.sendError(500) }
+    }
+
+    @Secured(['permitAll'])
+    def workerFetch() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            String kind = params.kind as String
+            Long id = params.long('id')
+            if (!(kind in ['input','script']) || id == null) { response.sendError(400); return }
+            RemoteWorker worker = signedWorker('fetch', "${id}:${kind}")
+            ServerJob job = workerDispatchService.owned(worker,id)
+            java.nio.file.Path path = kind == 'input' ? workerDispatchService.input(job) : workerDispatchService.script(job)
+            response.contentType = kind == 'input' ? 'application/zip' : 'text/x-python'
+            response.setHeader('Content-Disposition','attachment; filename="worker-' + kind + '"')
+            java.nio.file.Files.copy(path,response.outputStream)
+            response.outputStream.flush()
+        } catch (SecurityException ex) { response.sendError(403) }
+        catch (Exception ex) { log.error('Worker fetch failed',ex); response.sendError(400) }
+    }
+
+    @Secured(['permitAll'])
+    def workerProgress() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            def body = request.JSON
+            String id = body.id?.toString()
+            String status = body.status?.toString()
+            int percent = (body.percent ?: 0) as Integer
+            String message = (body.message ?: '').toString()
+            String digest = java.security.MessageDigest.getInstance('SHA-256').digest(
+                "${id}:${status}:${percent}:${message}".getBytes('UTF-8')).encodeHex().toString()
+            RemoteWorker worker = signedWorker('progress',digest)
+            workerDispatchService.progress(worker,Long.parseLong(id),status,percent,message)
+            workerJson([ok:true])
+        } catch (SecurityException ex) { response.sendError(403) }
+        catch (Exception ex) { log.error('Worker progress failed',ex); response.sendError(400) }
+    }
+
+    @Secured(['permitAll'])
+    def workerResult() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            Long id = params.long('id')
+            if (id == null || request.contentLengthLong > WorkerDispatchService.MAX_RESULT) { response.sendError(413); return }
+            byte[] bytes = request.inputStream.bytes
+            String digest = java.security.MessageDigest.getInstance('SHA-256').digest(bytes).encodeHex().toString()
+            RemoteWorker worker = signedWorker('result',"${id}:${digest}")
+            workerDispatchService.complete(worker,id,bytes)
+            workerJson([ok:true])
+        } catch (SecurityException ex) { response.sendError(403) }
+        catch (Exception ex) { log.error('Worker result failed',ex); response.sendError(400) }
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def downloadJobResult() {
+        ServerJob job = ServerJob.get(params.long('id'))
+        if (!job?.resultFileName) { response.sendError(404); return }
+        String root = System.getenv('SERVER_ADMIN_JOB_STORAGE')
+        if (!root) { response.sendError(404); return }
+        java.nio.file.Path path = java.nio.file.Paths.get(root).toAbsolutePath().normalize().resolve(job.resultFileName).normalize()
+        if (!path.startsWith(java.nio.file.Paths.get(root).toAbsolutePath().normalize()) || !java.nio.file.Files.isRegularFile(path)) { response.sendError(404); return }
+        response.contentType = 'application/zip'
+        response.setHeader('Content-Disposition','attachment; filename="result-' + job.id + '.zip"')
+        java.nio.file.Files.copy(path,response.outputStream)
+    }
 
     @Secured(['ROLE_ADMIN'])
     def authorization() { render(view: 'index', model: [tab: 'auth', isAdmin: true]) }

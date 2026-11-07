@@ -10,6 +10,7 @@
 <a href="${request.contextPath}/serverAdmin/maintenance" class="${tab=='maintenance'?'active':''}">Server Maintenance</a>
 <a href="${request.contextPath}/serverAdmin/events" class="${tab=='events'?'active':''}">Event Manager</a>
 <a href="${request.contextPath}/serverAdmin/emailServer" class="${tab=='email'?'active':''}">Email Server</a>
+<a href="/serverAdmin/workers" class="${tab=='workers'?'active':''}">Workers</a>
 </g:if>
 </nav>
 <g:if test="${flash.message}"><div class="sa-alert">${flash.message.encodeAsHTML()}</div></g:if>
@@ -20,7 +21,7 @@
 <g:if test="${!modules}"><tr><td colspan="3">Module information is unavailable.</td></tr></g:if>
 </tbody></table><p class="sa-muted">Application modules are detected from deployed classes; their versions are shown when build metadata is available.</p></div></section></g:if>
 <g:elseif test="${tab=='jobs'}"><section class="sa-card"><h2>Job Queue</h2><div class="sa-body">
-<p class="sa-muted">Submitted jobs are stored as QUEUED. A worker/dispatcher is not implemented yet.</p>
+<p class="sa-muted">Jobs are assigned to approved workers with matching capabilities and an enabled script.</p>
 <g:if test="${isAdmin}"><form method="post" action="${request.contextPath}/serverAdmin/submitJob">
 <select name="jobType" required><option value="MAINTENANCE_REVIEW">Maintenance Review</option><option value="EVENT_REPORT">Event Report</option></select>
 <button class="sa-btn sa-primary" type="submit">Submit Job</button></form></g:if>
@@ -28,9 +29,15 @@
 <form method="post" enctype="multipart/form-data" action="${request.contextPath}/serverAdmin/submitPackageJob">
 <input type="file" name="file" accept=".zip,application/zip" required />
 <button class="sa-btn sa-primary" type="submit">Queue ZIP Package</button></form>
-<p class="sa-muted">ZIP is stored for future worker delivery; it is not executed or unpacked.</p></g:if>
-<table class="sa-table"><thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Submitted by</th><th>Package</th><th>Created</th></tr></thead><tbody>
-<g:each in="${jobs}" var="job"><tr><td>${job.id}</td><td>${job.jobType?.encodeAsHTML()}</td><td>${job.status?.encodeAsHTML()}</td><td>${job.submittedBy?.encodeAsHTML()}</td><td>${job.packageFileName?.encodeAsHTML() ?: "—"}</td><td>${job.dateCreated}</td></tr></g:each>
+<p class="sa-muted">ZIP is dispatched when an enabled REMOTE_PACKAGE script is available.</p></g:if>
+<table class="sa-table"><thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Submitted by</th><th>Package</th><th>Worker</th><th>Progress</th><th>Result</th><th>Created</th><g:if test="${isAdmin}"><th>Actions</th></g:if></tr></thead><tbody>
+<g:each in="${jobs}" var="job"><tr><td>${job.id}</td><td>${job.jobType?.encodeAsHTML()}</td><td>${job.status?.encodeAsHTML()}</td><td>${job.submittedBy?.encodeAsHTML()}</td><td>${job.packageFileName?.encodeAsHTML() ?: "—"}</td><td>${job.assignedWorkerId?.encodeAsHTML() ?: "—"}</td><td>${job.progressPercent ?: 0}%</td><td><g:if test="${job.resultFileName}"><a href="${request.contextPath}/serverAdmin/downloadJobResult?id=${job.id}">Download ZIP</a></g:if><g:else>—</g:else></td><td>${job.dateCreated}</td><g:if test="${isAdmin}"><td>
+<g:if test="${!(job.status in ['ASSIGNED','RUNNING','UPLOADING_RESULTS'])}">
+<form method="post" action="${request.contextPath}/serverAdmin/deleteQueuedJob" onsubmit="return confirm('Delete job #${job.id}? This cannot be undone.');" style="margin:0">
+<input type="hidden" name="id" value="${job.id}" />
+<button type="submit" class="sa-btn">Delete</button></form>
+</g:if><g:else>In progress</g:else>
+</td></g:if></tr></g:each>
 </tbody></table></div></section></g:elseif>
 <g:elseif test="${tab=='events'}"><section class="sa-card"><h2>Event Manager</h2><div class="sa-body">
 <p class="sa-muted">Audit events reported by PLM, Materials, and future DCN modules. Modules must call ServerEventService.record(...) after successful changes.</p>
@@ -50,6 +57,36 @@
 <g:each in="${actions}" var="action"><tr><td>${action.event?.eventType?.encodeAsHTML()}</td><td>${action.actionType?.encodeAsHTML()}</td><td>${action.status?.encodeAsHTML()}</td><td>${action.destination?.encodeAsHTML()}</td><td>
 <g:if test="${action.actionType == 'EMAIL' && action.status == 'QUEUED'}"><form method="post" action="${request.contextPath}/serverAdmin/sendEventEmail"><input type="hidden" name="id" value="${action.id}"/><button class="sa-btn" type="submit">Send Email</button></form></g:if></td></tr></g:each>
 </tbody></table></div></section></g:elseif>
+<g:elseif test="${tab=='workers'}">
+<style>
+.sa-worker-dot{display:inline-block;width:11px;height:11px;border-radius:50%;vertical-align:middle;margin-right:7px;border:1px solid rgba(0,0,0,.25)}
+.sa-worker-online{background:#25c65a;box-shadow:0 0 0 2px rgba(37,198,90,.16)}
+.sa-worker-offline{background:#ed4545;box-shadow:0 0 0 2px rgba(237,69,69,.14)}
+.sa-worker-status{white-space:nowrap}
+</style>
+<script>
+(function(){
+  // Only reload the worker tab, never interrupt other admin pages.
+  window.setInterval(function(){
+    if (document.visibilityState === 'visible' && !document.querySelector('input:focus, textarea:focus, select:focus')) {
+      window.location.reload();
+    }
+  }, 20000);
+})();
+</script>
+<section class="sa-card"><h2>Remote Workers</h2><div class="sa-body">
+<p class="sa-muted">New workers require administrator approval. ALL_JOBS matches any job type, but does not bypass approval or software requirements. Heartbeats are signed with Ed25519.</p>
+<table class="sa-table"><thead><tr><th>Name</th><th>Worker ID</th><th>Connection</th><th>Approval status</th><th>Capabilities</th><th>Last seen</th><th>Public key fingerprint</th><th>Approval</th></tr></thead><tbody>
+<g:each in="${workers}" var="w"><tr><td>${w.workerName?.encodeAsHTML()}</td><td>${w.workerId?.encodeAsHTML()}</td><td class="sa-worker-status"><g:set var="workerOnline" value="${w.status == 'APPROVED' && w.lastSeen != null && (System.currentTimeMillis() - w.lastSeen.time) >= 0L && (System.currentTimeMillis() - w.lastSeen.time) <= 60000L}"/><span class="sa-worker-dot ${workerOnline ? 'sa-worker-online' : 'sa-worker-offline'}" aria-hidden="true"></span>${workerOnline ? 'Connected' : 'Disconnected'}</td><td>${w.status?.encodeAsHTML()}</td><td>${w.capabilities?.encodeAsHTML()}</td><td>${w.lastSeen ?: 'Never'}</td><td>${w.publicKeyFingerprint?.encodeAsHTML()}</td><td>
+<g:if test="${w.status == 'PENDING_APPROVAL'}"><form method="post" action="/serverAdmin/setWorkerStatus"><input type="hidden" name="id" value="${w.id}"/><button class="sa-btn sa-primary" name="status" value="APPROVED">Approve</button><button class="sa-btn" name="status" value="REJECTED">Reject</button></form></g:if>
+<g:elseif test="${w.status == 'APPROVED'}"><form method="post" action="/serverAdmin/setWorkerStatus"><input type="hidden" name="id" value="${w.id}"/><button class="sa-btn" name="status" value="REVOKED">Revoke</button></form></g:elseif>
+</td></tr></g:each></tbody></table></div></section>
+<section class="sa-card"><h2>Job-specific Python Scripts</h2><div class="sa-body"><p class="sa-muted">Upload an approved script version for a job type. Uploads are disabled by default. Enabled scripts are delivered with matching jobs.</p>
+<form method="post" action="/serverAdmin/uploadWorkerScript" enctype="multipart/form-data">
+<input name="name" placeholder="Script name" required maxlength="120"/><input name="version" placeholder="Version (e.g. 1.0)" required maxlength="50"/><input name="jobType" placeholder="Job type (e.g. CAD_TO_GLB)" required maxlength="80"/><input type="file" name="file" accept=".py" required/><button class="sa-btn sa-primary">Upload Script</button></form>
+<table class="sa-table"><thead><tr><th>Name</th><th>Version</th><th>Job type</th><th>SHA-256</th><th>Enabled</th><th>Action</th></tr></thead><tbody>
+<g:each in="${scripts}" var="script"><tr><td>${script.name?.encodeAsHTML()}</td><td>${script.scriptVersion?.encodeAsHTML()}</td><td>${script.jobType?.encodeAsHTML()}</td><td>${script.sha256?.encodeAsHTML()}</td><td>${script.enabled}</td><td><form method="post" action="/serverAdmin/setWorkerScriptEnabled"><input type="hidden" name="id" value="${script.id}"/><input type="hidden" name="enabled" value="${script.enabled ? 'false':'true'}"/><button class="sa-btn">${script.enabled ? 'Disable':'Enable'}</button></form></td></tr></g:each></tbody></table>
+</div></section></g:elseif>
 <g:elseif test="${tab=='email'}"><section class="sa-card"><h2>Email Server Connection</h2><div class="sa-body">
 <p>SMTP configuration is read from server environment variables. Passwords are never displayed.</p>
 <table class="sa-table"><tr><th>Connection</th><td>${smtpConfigured ? 'Configured (not connection-tested)' : 'Not configured'}</td></tr><tr><th>Host</th><td>${smtpHost?.encodeAsHTML()}</td></tr><tr><th>Port</th><td>${smtpPort?.encodeAsHTML()}</td></tr><tr><th>From</th><td>${smtpFrom?.encodeAsHTML()}</td></tr></table>

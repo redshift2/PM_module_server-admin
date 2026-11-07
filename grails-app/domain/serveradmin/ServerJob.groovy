@@ -8,6 +8,11 @@ class ServerJob {
     String parametersJson
     String packageFileName
     String resultMessage
+    String assignedWorkerId
+    Long assignedScriptId
+    String resultFileName
+    Integer progressPercent = 0
+    Date leaseUntil
     Date dateCreated
     Date lastUpdated
     Date startedAt
@@ -19,6 +24,11 @@ class ServerJob {
         parametersJson nullable: true, maxSize: 4000
         packageFileName nullable: true, maxSize: 255
         resultMessage nullable: true, maxSize: 2000
+        assignedWorkerId nullable: true, maxSize: 60
+        assignedScriptId nullable: true
+        resultFileName nullable: true, maxSize: 255
+        progressPercent nullable: true, min: 0, max: 100
+        leaseUntil nullable: true
         startedAt nullable: true
         completedAt nullable: true
     }
