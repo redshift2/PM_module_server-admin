@@ -67,7 +67,7 @@ class ServerAdminController {
 
     @Secured(['ROLE_ADMIN'])
     def events() {
-        render(view: 'index', model: [tab: 'events', isAdmin: true, events: serverEventService.recent(), rules: ServerEventRule.list(sort:'id', order:'desc'), actions: serverEventActionService.recent()])
+        render(view: 'index', model: [tab: 'events', isAdmin: true, events: serverEventService.recent(), rules: ServerEventRule.list(sort:'id', order:'desc'), activeJobTypes: WorkerScript.findAllByEnabled(true).collect { it.jobType }.unique().sort(), actions: serverEventActionService.recent()])
     }
 
     @Secured(['ROLE_ADMIN'])
@@ -76,15 +76,80 @@ class ServerAdminController {
         try {
             String type = params.eventType as String
             String action = params.actionType as String
-            String dest = (params.destination ?: '') as String
+            String dest = (action == 'SUBMIT_JOB' ? (params.jobDestination ?: '') : (params.destination ?: '')) as String
             if (!(type in ServerEventService.KNOWN_TYPES)) throw new IllegalArgumentException('Unknown event type')
             if (!(action in ['LOG','EMAIL','SUBMIT_JOB'])) throw new IllegalArgumentException('Unknown action')
             if (action == 'EMAIL' && !dest.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')) throw new IllegalArgumentException('Valid email recipient required')
-            if (action == 'SUBMIT_JOB' && !(dest in ServerJobService.SUPPORTED_TYPES)) throw new IllegalArgumentException('Unsupported job type')
+            if (action == 'SUBMIT_JOB' && !(dest in WorkerScript.findAllByEnabled(true).collect { it.jobType })) throw new IllegalArgumentException('Job type requires an enabled worker script')
             new ServerEventRule(name: params.name, eventType:type, actionType:action, destination:dest).save(failOnError:true, flush:true)
             flash.message = 'Event rule saved.'
         } catch (Exception ex) { flash.error = ex.message }
         response.sendRedirect(request.contextPath + '/serverAdmin/events')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def updateEventRule() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            ServerEventRule rule = ServerEventRule.get(params.long('id'))
+            if (!rule) throw new IllegalArgumentException('Rule not found')
+            String type = params.eventType as String
+            String action = params.actionType as String
+            String dest = (action == 'SUBMIT_JOB' ? (params.jobDestination ?: '') : (params.destination ?: '')).toString().trim()
+            if (!(type in ServerEventService.KNOWN_TYPES)) throw new IllegalArgumentException('Unknown event type')
+            if (!(action in ['LOG','EMAIL','SUBMIT_JOB'])) throw new IllegalArgumentException('Unknown action')
+            if (action == 'EMAIL' && !dest.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')) throw new IllegalArgumentException('Valid email recipient required')
+            if (action == 'SUBMIT_JOB' && !(dest in WorkerScript.findAllByEnabled(true).collect { it.jobType }))
+                throw new IllegalArgumentException('Job type requires an enabled worker script')
+            rule.name = params.name as String
+            rule.eventType = type
+            rule.actionType = action
+            rule.destination = dest
+            rule.enabled = params.enabled == 'true'
+            rule.save(failOnError:true, flush:true)
+            flash.message = 'Event rule updated.'
+        } catch (Exception ex) { flash.error = ex.message }
+        response.sendRedirect(request.contextPath + '/serverAdmin/events')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def deleteEventRule() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            ServerEventRule rule = ServerEventRule.get(params.long('id'))
+            if (!rule) throw new IllegalArgumentException('Rule not found')
+            // Keep historical event actions and their rule references intact.
+            if (ServerEventAction.countByRule(rule) > 0)
+                throw new IllegalStateException('Rule has event history. Disable it instead of deleting it.')
+            rule.delete(flush:true)
+            flash.message = 'Event rule deleted.'
+        } catch (Exception ex) { flash.error = ex.message }
+        response.sendRedirect(request.contextPath + '/serverAdmin/events')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def deleteWorker() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            RemoteWorker worker = RemoteWorker.get(params.long('id'))
+            if (!worker) throw new IllegalArgumentException('Worker not found')
+            if (ServerJob.countByAssignedWorkerIdAndStatusInList(worker.workerId,
+                    ['ASSIGNED','RUNNING','IN_PROGRESS']) > 0)
+                throw new IllegalStateException('Worker has active jobs. Revoke and wait for jobs to finish.')
+            worker.delete(flush:true)
+            flash.message = 'Worker deleted. Its credentials can register again as a new worker.'
+        } catch (Exception ex) { flash.error = ex.message }
+        response.sendRedirect(request.contextPath + '/serverAdmin/workers')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def deleteWorkerScript() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            workerScriptService.deleteScript(params.long('id'))
+            flash.message = 'Script deleted.'
+        } catch (Exception ex) { flash.error = ex.message }
+        response.sendRedirect(request.contextPath + '/serverAdmin/workers')
     }
 
     @Secured(['ROLE_ADMIN'])

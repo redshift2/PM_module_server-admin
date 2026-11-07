@@ -32,4 +32,20 @@ class WorkerScriptService {
         script.enabled = enabled
         script.save(failOnError:true,flush:true)
     }
+    void deleteScript(Long id) {
+        WorkerScript script = WorkerScript.get(id)
+        if (!script) throw new IllegalArgumentException('Script not found')
+        if (ServerJob.countByAssignedScriptId(id) > 0)
+            throw new IllegalStateException('Script is referenced by job history. Disable it instead.')
+        // Delete DB record first; a missing file is harmless, but a failed DB delete
+        // must not remove the script needed by the dispatcher.
+        String storageFile = script.storageFile
+        script.delete(flush:true)
+        String root = System.getenv('SERVER_ADMIN_SCRIPT_STORAGE')
+        if (root && storageFile ==~ /[0-9a-fA-F-]{36}\.py/) {
+            // File cleanup is best-effort. The database record is authoritative.
+            try { Files.deleteIfExists(Paths.get(root).toAbsolutePath().normalize().resolve(storageFile)) }
+            catch (Exception ignored) { log.warn('Unable to remove script file ' + storageFile) }
+        }
+    }
 }

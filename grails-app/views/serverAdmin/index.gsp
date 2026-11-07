@@ -45,11 +45,24 @@
 <form method="post" action="${request.contextPath}/serverAdmin/createEventRule">
 <input name="name" placeholder="Rule name" maxlength="120" required />
 <select name="eventType"><g:each in="${serveradmin.ServerEventService.KNOWN_TYPES.toList().sort()}" var="eventType"><option value="${eventType}">${eventType}</option></g:each></select>
-<select name="actionType"><option value="LOG">Log</option><option value="EMAIL">Email</option><option value="SUBMIT_JOB">Submit Job (future worker)</option></select>
-<input name="destination" placeholder="Email address or job type" maxlength="255" />
+<select name="actionType"><option value="LOG">Log</option><option value="EMAIL">Email</option><option value="SUBMIT_JOB">Submit Job</option></select>
+<input name="destination" placeholder="Email address (for EMAIL)" maxlength="255" />
+<select name="jobDestination"><option value="">Job type (for SUBMIT_JOB)</option><g:each in="${activeJobTypes}" var="jt"><option value="${jt.encodeAsHTML()}">${jt.encodeAsHTML()}</option></g:each></select>
 <button class="sa-btn sa-primary" type="submit">Add Rule</button></form>
-<h3>Rules</h3><table class="sa-table"><thead><tr><th>Name</th><th>Event</th><th>Action</th><th>Destination</th></tr></thead><tbody>
-<g:each in="${rules}" var="rule"><tr><td>${rule.name?.encodeAsHTML()}</td><td>${rule.eventType?.encodeAsHTML()}</td><td>${rule.actionType?.encodeAsHTML()}</td><td>${rule.destination?.encodeAsHTML()}</td></tr></g:each>
+<p class="sa-muted">Job types come from enabled worker scripts. Select Submit Job and choose a job type; for Email, enter an email address.</p>
+<h3>Rules</h3><table class="sa-table"><thead><tr><th>Name / Event</th><th>Action / Destination</th><th>Enabled</th><th>Manage</th></tr></thead><tbody>
+<g:each in="${rules}" var="rule"><tr><td colspan="4">
+<form method="post" action="${request.contextPath}/serverAdmin/updateEventRule" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+<input type="hidden" name="id" value="${rule.id}" />
+<input name="name" value="${rule.name?.encodeAsHTML()}" maxlength="120" required />
+<select name="eventType"><g:each in="${serveradmin.ServerEventService.KNOWN_TYPES.toList().sort()}" var="eventType"><option value="${eventType}" ${rule.eventType == eventType ? 'selected="selected"' : ''}>${eventType}</option></g:each></select>
+<select name="actionType"><g:each in="${['LOG','EMAIL','SUBMIT_JOB']}" var="at"><option value="${at}" ${rule.actionType == at ? 'selected="selected"' : ''}>${at}</option></g:each></select>
+<input name="destination" value="${rule.actionType == 'SUBMIT_JOB' ? '' : rule.destination?.encodeAsHTML()}" placeholder="Email address" maxlength="255" />
+<select name="jobDestination"><option value="">Job type</option><g:each in="${(activeJobTypes + (rule.actionType == 'SUBMIT_JOB' ? [rule.destination] : [])).findAll { it }.unique().sort()}" var="jt"><option value="${jt.encodeAsHTML()}" ${rule.destination == jt ? 'selected="selected"' : ''}>${jt.encodeAsHTML()}</option></g:each></select>
+<select name="enabled"><option value="true" ${rule.enabled ? 'selected="selected"' : ''}>Enabled</option><option value="false" ${!rule.enabled ? 'selected="selected"' : ''}>Disabled</option></select>
+<button class="sa-btn" type="submit">Save</button></form>
+<form method="post" action="${request.contextPath}/serverAdmin/deleteEventRule" onsubmit="return confirm('Delete this event rule? Rules with event history must be disabled instead.');" style="display:inline"><input type="hidden" name="id" value="${rule.id}"/><button class="sa-btn" type="submit">Delete</button></form>
+</td></tr></g:each>
 </tbody></table><h3>Recent events</h3>
 <table class="sa-table"><thead><tr><th>Time</th><th>Module</th><th>Event</th><th>Entity</th><th>Actor</th><th>Message</th></tr></thead><tbody>
 <g:each in="${events}" var="evt"><tr><td>${evt.dateCreated}</td><td>${evt.sourceModule?.encodeAsHTML()}</td><td>${evt.eventType?.encodeAsHTML()}</td><td>${evt.entityType?.encodeAsHTML()} ${evt.entityId?.encodeAsHTML()}</td><td>${evt.actor?.encodeAsHTML()}</td><td>${evt.message?.encodeAsHTML()}</td></tr></g:each>
@@ -80,12 +93,13 @@
 <g:each in="${workers}" var="w"><tr><td>${w.workerName?.encodeAsHTML()}</td><td>${w.workerId?.encodeAsHTML()}</td><td class="sa-worker-status"><g:set var="workerOnline" value="${w.status == 'APPROVED' && w.lastSeen != null && (System.currentTimeMillis() - w.lastSeen.time) >= 0L && (System.currentTimeMillis() - w.lastSeen.time) <= 60000L}"/><span class="sa-worker-dot ${workerOnline ? 'sa-worker-online' : 'sa-worker-offline'}" aria-hidden="true"></span>${workerOnline ? 'Connected' : 'Disconnected'}</td><td>${w.status?.encodeAsHTML()}</td><td>${w.capabilities?.encodeAsHTML()}</td><td>${w.lastSeen ?: 'Never'}</td><td>${w.publicKeyFingerprint?.encodeAsHTML()}</td><td>
 <g:if test="${w.status == 'PENDING_APPROVAL'}"><form method="post" action="/serverAdmin/setWorkerStatus"><input type="hidden" name="id" value="${w.id}"/><button class="sa-btn sa-primary" name="status" value="APPROVED">Approve</button><button class="sa-btn" name="status" value="REJECTED">Reject</button></form></g:if>
 <g:elseif test="${w.status == 'APPROVED'}"><form method="post" action="/serverAdmin/setWorkerStatus"><input type="hidden" name="id" value="${w.id}"/><button class="sa-btn" name="status" value="REVOKED">Revoke</button></form></g:elseif>
+<form method="post" action="${request.contextPath}/serverAdmin/deleteWorker" onsubmit="return confirm('Permanently delete this worker?');"><input type="hidden" name="id" value="${w.id}"/><button class="sa-btn" type="submit">Delete Worker</button></form>
 </td></tr></g:each></tbody></table></div></section>
 <section class="sa-card"><h2>Job-specific Python Scripts</h2><div class="sa-body"><p class="sa-muted">Upload an approved script version for a job type. Uploads are disabled by default. Enabled scripts are delivered with matching jobs.</p>
 <form method="post" action="/serverAdmin/uploadWorkerScript" enctype="multipart/form-data">
 <input name="name" placeholder="Script name" required maxlength="120"/><input name="version" placeholder="Version (e.g. 1.0)" required maxlength="50"/><input name="jobType" placeholder="Job type (e.g. CAD_TO_GLB)" required maxlength="80"/><input type="file" name="file" accept=".py" required/><button class="sa-btn sa-primary">Upload Script</button></form>
 <table class="sa-table"><thead><tr><th>Name</th><th>Version</th><th>Job type</th><th>SHA-256</th><th>Enabled</th><th>Action</th></tr></thead><tbody>
-<g:each in="${scripts}" var="script"><tr><td>${script.name?.encodeAsHTML()}</td><td>${script.scriptVersion?.encodeAsHTML()}</td><td>${script.jobType?.encodeAsHTML()}</td><td>${script.sha256?.encodeAsHTML()}</td><td>${script.enabled}</td><td><form method="post" action="/serverAdmin/setWorkerScriptEnabled"><input type="hidden" name="id" value="${script.id}"/><input type="hidden" name="enabled" value="${script.enabled ? 'false':'true'}"/><button class="sa-btn">${script.enabled ? 'Disable':'Enable'}</button></form></td></tr></g:each></tbody></table>
+<g:each in="${scripts}" var="script"><tr><td>${script.name?.encodeAsHTML()}</td><td>${script.scriptVersion?.encodeAsHTML()}</td><td>${script.jobType?.encodeAsHTML()}</td><td>${script.sha256?.encodeAsHTML()}</td><td>${script.enabled}</td><td><form method="post" action="/serverAdmin/setWorkerScriptEnabled"><input type="hidden" name="id" value="${script.id}"/><input type="hidden" name="enabled" value="${script.enabled ? 'false':'true'}"/><button class="sa-btn">${script.enabled ? 'Disable':'Enable'}</button></form><form method="post" action="${request.contextPath}/serverAdmin/deleteWorkerScript" onsubmit="return confirm('Permanently delete this script?');"><input type="hidden" name="id" value="${script.id}"/><button class="sa-btn" type="submit">Delete Script</button></form></td></tr></g:each></tbody></table>
 </div></section></g:elseif>
 <g:elseif test="${tab=='email'}"><section class="sa-card"><h2>Email Server Connection</h2><div class="sa-body">
 <p>SMTP configuration is read from server environment variables. Passwords are never displayed.</p>
