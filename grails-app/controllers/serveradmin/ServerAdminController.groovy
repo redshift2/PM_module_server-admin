@@ -37,7 +37,30 @@ class ServerAdminController {
     }
 
     def jobQueue() {
-        render(view: 'index', model: [tab: 'jobs', isAdmin: admin(), jobs: serverJobService.recent()])
+        def jobs = serverJobService.recent()
+        Set<String> workerIds = jobs.collect { it.assignedWorkerId as String }
+                .findAll { it } as Set<String>
+        Map<String, String> workerNames = [:]
+        if (workerIds) {
+            RemoteWorker.findAllByWorkerIdInList(workerIds.toList()).each { RemoteWorker worker ->
+                workerNames[worker.workerId] = worker.workerName
+            }
+        }
+        render(view: 'index', model: [tab: 'jobs', isAdmin: admin(), jobs: jobs,
+                                      workerNames: workerNames])
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def deleteCompletedJobs() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            int count = serverJobService.deleteCompletedJobs()
+            flash.message = count + ' completed job(s) deleted.'
+        } catch (Exception ex) {
+            log.error('Bulk completed-job deletion failed', ex)
+            flash.error = 'Unable to delete completed jobs: ' + ex.message
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/jobQueue')
     }
 
     @Secured(['ROLE_ADMIN'])

@@ -22,6 +22,13 @@
 </tbody></table><p class="sa-muted">Application modules are detected from deployed classes; their versions are shown when build metadata is available.</p></div></section></g:if>
 <g:elseif test="${tab=='jobs'}"><section class="sa-card"><h2>Job Queue</h2><div class="sa-body">
 <p class="sa-muted">Jobs are assigned to approved workers with matching capabilities and an enabled script.</p>
+<g:if test="${isAdmin}">
+<form method="post" action="${request.contextPath}/serverAdmin/deleteCompletedJobs"
+      onsubmit="return confirm('Delete ALL completed jobs? This cannot be undone. Failed, queued, and running jobs will remain.');"
+      style="margin:10px 0">
+  <button type="submit" class="sa-btn">Delete All Completed Jobs</button>
+</form>
+</g:if>
 <g:if test="${isAdmin}"><form method="post" action="${request.contextPath}/serverAdmin/submitJob">
 <select name="jobType" required><option value="MAINTENANCE_REVIEW">Maintenance Review</option><option value="EVENT_REPORT">Event Report</option></select>
 <button class="sa-btn sa-primary" type="submit">Submit Job</button></form></g:if>
@@ -31,7 +38,7 @@
 <button class="sa-btn sa-primary" type="submit">Queue ZIP Package</button></form>
 <p class="sa-muted">ZIP is dispatched when an enabled REMOTE_PACKAGE script is available.</p></g:if>
 <table class="sa-table"><thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Submitted by</th><th>Package</th><th>Worker</th><th>Progress</th><th>Result</th><th>Created</th><g:if test="${isAdmin}"><th>Actions</th></g:if></tr></thead><tbody>
-<g:each in="${jobs}" var="job"><tr><td>${job.id}</td><td>${job.jobType?.encodeAsHTML()}</td><td>${job.status?.encodeAsHTML()}</td><td>${job.submittedBy?.encodeAsHTML()}</td><td>${job.packageFileName?.encodeAsHTML() ?: "—"}</td><td>${job.assignedWorkerId?.encodeAsHTML() ?: "—"}</td><td>${job.progressPercent ?: 0}%</td><td><g:if test="${job.resultFileName}"><a href="${request.contextPath}/serverAdmin/downloadJobResult?id=${job.id}">Download ZIP</a></g:if><g:else>—</g:else></td><td>${job.dateCreated}</td><g:if test="${isAdmin}"><td>
+<g:each in="${jobs}" var="job"><tr><td>${job.id}</td><td>${job.jobType?.encodeAsHTML()}</td><td>${job.status?.encodeAsHTML()}</td><td>${job.submittedBy?.encodeAsHTML()}</td><td>${job.packageFileName?.encodeAsHTML() ?: "—"}</td><td>${job.assignedWorkerId ? ((workerNames[job.assignedWorkerId] ?: "Unknown worker").encodeAsHTML()) : "—"}</td><td>${job.progressPercent ?: 0}%</td><td><g:if test="${job.resultFileName}"><a href="${request.contextPath}/serverAdmin/downloadJobResult?id=${job.id}">Download ZIP</a></g:if><g:else>—</g:else></td><td>${job.dateCreated}</td><g:if test="${isAdmin}"><td>
 <g:if test="${!(job.status in ['ASSIGNED','RUNNING','UPLOADING_RESULTS'])}">
 <form method="post" action="${request.contextPath}/serverAdmin/deleteQueuedJob" onsubmit="return confirm('Delete job #${job.id}? This cannot be undone.');" style="margin:0">
 <input type="hidden" name="id" value="${job.id}" />

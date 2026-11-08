@@ -32,6 +32,25 @@ class ServerJobService {
     List<ServerJob> recent(int limit = 100) {
         ServerJob.list(max: Math.min(Math.max(limit, 1), 200), sort: 'dateCreated', order: 'desc')
     }
+    /** Remove all successfully completed jobs, not failed or active jobs. */
+    @Transactional
+    int deleteCompletedJobs() {
+        List<Long> ids = ServerJob.executeQuery(
+            'select j.id from ServerJob j where j.status = :status',
+            [status: 'COMPLETED']) as List<Long>
+        int count = 0
+        ids.each { Long id ->
+            ServerJob job = ServerJob.get(id)
+            if (job != null && job.status == 'COMPLETED') {
+                job.delete(failOnError: true)
+                count++
+            }
+        }
+        ServerJob.withSession { it.flush() }
+        // Stored ZIP files are intentionally retained, consistent with deleteJob().
+        return count
+    }
+
     @Transactional
     void deleteJob(Long jobId) {
         ServerJob job = ServerJob.get(jobId)
