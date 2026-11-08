@@ -12,25 +12,60 @@ class WorkerDispatchService {
 
     private boolean matches(RemoteWorker worker, String type) {
         def caps = new JsonSlurper().parseText(worker.capabilities ?: '[]')
-        caps.contains('ALL_JOBS') || caps.contains(type)
+        if (!(caps instanceof Collection)) return false
+        if (caps.contains('ALL_JOBS') || caps.contains(type)) return true
+        // FREECAD is the broad capability advertised by older FreeCAD workers.
+        return caps.contains('FREECAD') && type in ['CAD_TO_GLB', 'CAD_TO_X3D', 'CAD_TO_STEP', 'CAD_PROPERTIES']
     }
 
-    /** Serialized claiming prevents two concurrent polls from assigning the same job. */
+    /**
+     * Recover abandoned assignments before selecting the next job.
+     * Never reclaim a live worker's job just because its heartbeat is delayed;
+     * the job lease itself must expire. A late result is rejected by owned().
+     */
+    int recoverExpiredJobs(Date now = new Date()) {
+        int recovered = 0
+        for (ServerJob job : ServerJob.findAllByStatusInListAndLeaseUntilLessThan(
+                ['ASSIGNED', 'RUNNING', 'UPLOADING_RESULTS'], now)) {
+            String previousWorker = job.assignedWorkerId
+            job.status = 'QUEUED'
+            job.assignedWorkerId = null
+            job.assignedScriptId = null
+            job.leaseUntil = null
+            job.startedAt = null
+            job.completedAt = null
+            job.progressPercent = 0
+            job.resultMessage = ('Requeued after expired worker lease' +
+                (previousWorker ? ' (' + previousWorker + ')' : '')).take(2000)
+            job.save(failOnError:true, flush:true)
+            recovered++
+            log.warn("Recovered expired job ${job.id} from worker ${previousWorker}")
+        }
+        return recovered
+    }
+
+    /** Serialized claiming prevents two concurrent polls on this server instance
+     * from assigning the same job. For multi-instance deployment, use DB locking. */
     synchronized Map claim(RemoteWorker worker) {
         if (worker.status != 'APPROVED') throw new SecurityException('Not approved')
-        int active = ServerJob.countByAssignedWorkerIdAndStatusInList(worker.workerId, ['ASSIGNED','RUNNING','UPLOADING_RESULTS'])
+        Date now = new Date()
+        recoverExpiredJobs(now)
+        int active = ServerJob.countByAssignedWorkerIdAndStatusInList(worker.workerId,
+                ['ASSIGNED','RUNNING','UPLOADING_RESULTS'])
         if (active >= worker.maxConcurrentJobs) return [job:null]
-        for (ServerJob job : ServerJob.findAllByStatus('QUEUED', [sort:'dateCreated',order:'asc',max:50])) {
+        for (ServerJob job : ServerJob.findAllByStatus('QUEUED',
+                [sort:'dateCreated',order:'asc',max:200])) {
             if (!matches(worker, job.jobType)) continue
-            WorkerScript script = WorkerScript.findByJobTypeAndEnabled(job.jobType, true, [sort:'dateCreated', order:'desc'])
-            if (!script) continue
-            if (!job.packageFileName) continue // No input package: leave queued, do not execute.
+            WorkerScript script = WorkerScript.findByJobTypeAndEnabled(job.jobType, true,
+                    [sort:'dateCreated', order:'desc'])
+            if (!script || !job.packageFileName) continue
             job.assignedWorkerId = worker.workerId
             job.assignedScriptId = script.id
             job.status = 'ASSIGNED'
-            job.startedAt = new Date()
-            job.leaseUntil = new Date(System.currentTimeMillis() + 30L*60L*1000L)
+            job.startedAt = now
+            job.leaseUntil = new Date(now.time + 30L*60L*1000L)
             job.save(failOnError:true, flush:true)
+            log.info("Assigned job ${job.id} (${job.jobType}) to worker ${worker.workerName} (${worker.workerId})")
             return [job:[id:job.id, jobType:job.jobType, scriptId:script.id,
                 scriptSha256:script.sha256, scriptVersion:script.scriptVersion,
                 scriptName:script.name, leaseSeconds:1800]]

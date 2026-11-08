@@ -12,7 +12,7 @@ import java.util.UUID
 
 @Transactional
 class RemoteWorkerService {
-    static final Set<String> ALLOWED = ['ALL_JOBS','FREECAD','CAD_TO_GLB','CAD_TO_STEP','GENERATE_BOM','CAD_PROPERTIES','FILE_PROCESSING'] as Set
+    static final Set<String> ALLOWED = ['ALL_JOBS','FREECAD','CAD_TO_GLB','CAD_TO_X3D','CAD_TO_STEP','GENERATE_BOM','CAD_PROPERTIES','FILE_PROCESSING'] as Set
 
     RemoteWorker register(Map payload) {
         String key = payload.publicKey?.toString()
