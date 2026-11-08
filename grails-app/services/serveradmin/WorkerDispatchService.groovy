@@ -104,14 +104,14 @@ class WorkerDispatchService {
             job.completedAt = new Date()
             job.resultMessage = 'Result ZIP received'
             job.save(failOnError:true,flush:true)
-            if (job.jobType == 'CAD_TO_GLB') {
+            if (job.jobType in ['CAD_TO_GLB', 'CAD_TO_X3D']) {
                 try {
                     grailsApplication.mainContext.getBean('plmCadConversionService')
                         .importWorkerResult(job, dir.resolve(name))
                 } catch (Exception ex) {
-                    log.error('CAD_TO_GLB result import failed for job ' + job.id, ex)
+                    log.error(job.jobType + ' result import failed for job ' + job.id, ex)
                     job.status = 'FAILED'
-                    job.resultMessage = ('GLB import failed: ' + ex.message).take(2000)
+                    job.resultMessage = (job.jobType + ' import failed: ' + ex.message).take(2000)
                     job.save(failOnError:true,flush:true)
                 }
             }
