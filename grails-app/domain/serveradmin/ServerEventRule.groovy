@@ -5,11 +5,13 @@ class ServerEventRule {
     String name
     String eventType
     String actionType // LOG, EMAIL, SUBMIT_JOB
+    String routeData = 'JOB_RESULTS'
     String destination // Email recipient or job type; never a shell command
     boolean enabled = true
     Date dateCreated
     Date lastUpdated
     static constraints = {
+        routeData nullable: true, maxSize: 32
         name blank:false, maxSize:120
         eventType blank:false, maxSize:80
         actionType inList:['LOG','EMAIL','SUBMIT_JOB']

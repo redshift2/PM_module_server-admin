@@ -26,7 +26,7 @@ class ServerEventService {
         event.save(failOnError: true)
         ServerEventRule.findAllByEventTypeAndEnabled(type, true).each { ServerEventRule rule ->
             new ServerEventAction(event: event, rule: rule, actionType: rule.actionType,
-                destination: rule.destination, status: rule.actionType == 'LOG' ? 'COMPLETED' : 'QUEUED',
+                destination: rule.destination, routeData: rule.routeData ?: JobResultRoute.legacyDefault(rule.destination), status: rule.actionType == 'LOG' ? 'COMPLETED' : 'QUEUED',
                 completedAt: rule.actionType == 'LOG' ? new Date() : null).save(failOnError: true)
         }
         return event

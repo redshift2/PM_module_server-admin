@@ -31,14 +31,16 @@
 </g:if>
 <g:if test="${isAdmin}"><form method="post" action="${request.contextPath}/serverAdmin/submitJob">
 <select name="jobType" required><option value="MAINTENANCE_REVIEW">Maintenance Review</option><option value="EVENT_REPORT">Event Report</option></select>
+<select name="routeData" required><g:each in="${routeOptions}" var="opt"><option value="${opt.key}">${opt.value}</option></g:each></select>
 <button class="sa-btn sa-primary" type="submit">Submit Job</button></form></g:if>
 <g:if test="${isAdmin}"><h3>Submit remote-worker package</h3>
 <form method="post" enctype="multipart/form-data" action="${request.contextPath}/serverAdmin/submitPackageJob">
 <input type="file" name="file" accept=".zip,application/zip" required />
+<select name="routeData" required><g:each in="${routeOptions}" var="opt"><option value="${opt.key}">${opt.value}</option></g:each></select>
 <button class="sa-btn sa-primary" type="submit">Queue ZIP Package</button></form>
 <p class="sa-muted">ZIP is dispatched when an enabled REMOTE_PACKAGE script is available.</p></g:if>
-<table class="sa-table"><thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Submitted by</th><th>Package</th><th>Worker</th><th>Progress</th><th>Result</th><th>Created</th><g:if test="${isAdmin}"><th>Actions</th></g:if></tr></thead><tbody>
-<g:each in="${jobs}" var="job"><tr><td>${job.id}</td><td>${job.jobType?.encodeAsHTML()}</td><td>${job.status?.encodeAsHTML()}</td><td>${job.submittedBy?.encodeAsHTML()}</td><td>${job.packageFileName?.encodeAsHTML() ?: "—"}</td><td>${job.assignedWorkerId ? ((workerNames[job.assignedWorkerId] ?: "Unknown worker").encodeAsHTML()) : "—"}</td><td>${job.progressPercent ?: 0}%</td><td><g:if test="${job.resultFileName}"><a href="${request.contextPath}/serverAdmin/downloadJobResult?id=${job.id}">Download ZIP</a></g:if><g:else>—</g:else></td><td>${job.dateCreated}</td><g:if test="${isAdmin}"><td>
+<table class="sa-table"><thead><tr><th>ID</th><th>Type</th><th>Route Data</th><th>Status</th><th>Submitted by</th><th>Package</th><th>Worker</th><th>Progress</th><th>Part</th><th>Result</th><th>Created</th><g:if test="${isAdmin}"><th>Actions</th></g:if></tr></thead><tbody>
+<g:each in="${jobs}" var="job"><tr><td>${job.id}</td><td>${job.jobType?.encodeAsHTML()}</td><td>${(routeOptions[job.routeData ?: serveradmin.JobResultRoute.legacyDefault(job.jobType)] ?: "Unknown").encodeAsHTML()}</td><td>${job.status?.encodeAsHTML()}</td><td>${job.submittedBy?.encodeAsHTML()}</td><td>${job.packageFileName?.encodeAsHTML() ?: "—"}</td><td>${job.assignedWorkerId ? ((workerNames[job.assignedWorkerId] ?: "Unknown worker").encodeAsHTML()) : "—"}</td><td>${job.progressPercent ?: 0}%</td><td><g:if test="${jobPartIds[job.id]}"><a class="sa-btn" href="${request.contextPath}/plm/showPart/${jobPartIds[job.id]}" title="Open PLM part #${jobPartIds[job.id]}">Open Part</a></g:if><g:else>—</g:else></td><td><g:if test="${job.resultFileName}"><a href="${request.contextPath}/serverAdmin/downloadJobResult?id=${job.id}">Download ZIP</a></g:if><g:else>—</g:else></td><td>${job.dateCreated}</td><g:if test="${isAdmin}"><td>
 <g:if test="${!(job.status in ['ASSIGNED','RUNNING','UPLOADING_RESULTS'])}">
 <form method="post" action="${request.contextPath}/serverAdmin/deleteQueuedJob" onsubmit="return confirm('Delete job #${job.id}? This cannot be undone.');" style="margin:0">
 <input type="hidden" name="id" value="${job.id}" />
@@ -55,6 +57,7 @@
 <select name="actionType"><option value="LOG">Log</option><option value="EMAIL">Email</option><option value="SUBMIT_JOB">Submit Job</option></select>
 <input name="destination" placeholder="Email address (for EMAIL)" maxlength="255" />
 <select name="jobDestination"><option value="">Job type (for SUBMIT_JOB)</option><g:each in="${activeJobTypes}" var="jt"><option value="${jt.encodeAsHTML()}">${jt.encodeAsHTML()}</option></g:each></select>
+<select name="routeData" required><g:each in="${routeOptions}" var="opt"><option value="${opt.key}">${opt.value}</option></g:each></select>
 <button class="sa-btn sa-primary" type="submit">Add Rule</button></form>
 <p class="sa-muted">Job types come from enabled worker scripts. Select Submit Job and choose a job type; for Email, enter an email address.</p>
 <h3>Rules</h3><table class="sa-table"><thead><tr><th>Name / Event</th><th>Action / Destination</th><th>Enabled</th><th>Manage</th></tr></thead><tbody>
@@ -66,6 +69,7 @@
 <select name="actionType"><g:each in="${['LOG','EMAIL','SUBMIT_JOB']}" var="at"><option value="${at}" ${rule.actionType == at ? 'selected="selected"' : ''}>${at}</option></g:each></select>
 <input name="destination" value="${rule.actionType == 'SUBMIT_JOB' ? '' : rule.destination?.encodeAsHTML()}" placeholder="Email address" maxlength="255" />
 <select name="jobDestination"><option value="">Job type</option><g:each in="${(activeJobTypes + (rule.actionType == 'SUBMIT_JOB' ? [rule.destination] : [])).findAll { it }.unique().sort()}" var="jt"><option value="${jt.encodeAsHTML()}" ${rule.destination == jt ? 'selected="selected"' : ''}>${jt.encodeAsHTML()}</option></g:each></select>
+<select name="routeData" required><g:each in="${routeOptions}" var="opt"><option value="${opt.key}" ${((rule.routeData ?: serveradmin.JobResultRoute.legacyDefault(rule.destination)) == opt.key) ? 'selected="selected"' : ''}>${opt.value}</option></g:each></select>
 <select name="enabled"><option value="true" ${rule.enabled ? 'selected="selected"' : ''}>Enabled</option><option value="false" ${!rule.enabled ? 'selected="selected"' : ''}>Disabled</option></select>
 <button class="sa-btn" type="submit">Save</button></form>
 <form method="post" action="${request.contextPath}/serverAdmin/deleteEventRule" onsubmit="return confirm('Delete this event rule? Rules with event history must be disabled instead.');" style="display:inline"><input type="hidden" name="id" value="${rule.id}"/><button class="sa-btn" type="submit">Delete</button></form>
@@ -96,8 +100,8 @@
 </script>
 <section class="sa-card"><h2>Remote Workers</h2><div class="sa-body">
 <p class="sa-muted">New workers require administrator approval. ALL_JOBS matches any job type, but does not bypass approval or software requirements. Heartbeats are signed with Ed25519.</p>
-<table class="sa-table"><thead><tr><th>Name</th><th>Worker ID</th><th>Connection</th><th>Approval status</th><th>Capabilities</th><th>Last seen</th><th>Public key fingerprint</th><th>Approval</th></tr></thead><tbody>
-<g:each in="${workers}" var="w"><tr><td>${w.workerName?.encodeAsHTML()}</td><td>${w.workerId?.encodeAsHTML()}</td><td class="sa-worker-status"><g:set var="workerOnline" value="${w.status == 'APPROVED' && w.lastSeen != null && (System.currentTimeMillis() - w.lastSeen.time) >= 0L && (System.currentTimeMillis() - w.lastSeen.time) <= 60000L}"/><span class="sa-worker-dot ${workerOnline ? 'sa-worker-online' : 'sa-worker-offline'}" aria-hidden="true"></span>${workerOnline ? 'Connected' : 'Disconnected'}</td><td>${w.status?.encodeAsHTML()}</td><td>${w.capabilities?.encodeAsHTML()}</td><td>${w.lastSeen ?: 'Never'}</td><td>${w.publicKeyFingerprint?.encodeAsHTML()}</td><td>
+<table class="sa-table"><thead><tr><th>Name</th><th>Worker ID</th><th>Connection</th><th>Approval status</th><th>Capabilities</th><th>Last seen</th><th>Worker status</th><th>Approval</th></tr></thead><tbody>
+<g:each in="${workers}" var="w"><tr><td>${w.workerName?.encodeAsHTML()}</td><td>${w.workerId?.encodeAsHTML()}</td><td class="sa-worker-status"><g:set var="workerOnline" value="${w.status == 'APPROVED' && w.lastSeen != null && (System.currentTimeMillis() - w.lastSeen.time) >= 0L && (System.currentTimeMillis() - w.lastSeen.time) <= 60000L}"/><span class="sa-worker-dot ${workerOnline ? 'sa-worker-online' : 'sa-worker-offline'}" aria-hidden="true"></span>${workerOnline ? 'Connected' : 'Disconnected'}</td><td>${w.status?.encodeAsHTML()}</td><td>${w.capabilities?.encodeAsHTML()}</td><td>${w.lastSeen ?: 'Never'}</td><td class="sa-worker-status"><g:set var="activeWorkerJobs" value="${activeJobsByWorker?.get(w.workerId) ?: []}"/><g:if test="${w.status != 'APPROVED'}">${w.status?.encodeAsHTML()}</g:if><g:elseif test="${!workerOnline}">Offline</g:elseif><g:elseif test="${activeWorkerJobs}">Working — <g:each in="${activeWorkerJobs}" var="activeJob" status="i">${i > 0 ? ', ' : ''}${activeJob.jobType?.encodeAsHTML()}</g:each></g:elseif><g:else>Online — Idle</g:else></td><td>
 <g:if test="${w.status == 'PENDING_APPROVAL'}"><form method="post" action="/serverAdmin/setWorkerStatus"><input type="hidden" name="id" value="${w.id}"/><button class="sa-btn sa-primary" name="status" value="APPROVED">Approve</button><button class="sa-btn" name="status" value="REJECTED">Reject</button></form></g:if>
 <g:elseif test="${w.status == 'APPROVED'}"><form method="post" action="/serverAdmin/setWorkerStatus"><input type="hidden" name="id" value="${w.id}"/><button class="sa-btn" name="status" value="REVOKED">Revoke</button></form></g:elseif>
 <form method="post" action="${request.contextPath}/serverAdmin/deleteWorker" onsubmit="return confirm('Permanently delete this worker?');"><input type="hidden" name="id" value="${w.id}"/><button class="sa-btn" type="submit">Delete Worker</button></form>
@@ -106,7 +110,7 @@
 <form method="post" action="/serverAdmin/uploadWorkerScript" enctype="multipart/form-data">
 <input name="name" placeholder="Script name" required maxlength="120"/><input name="version" placeholder="Version (e.g. 1.0)" required maxlength="50"/><input name="jobType" placeholder="Job type (e.g. CAD_TO_GLB)" required maxlength="80"/><input type="file" name="file" accept=".py" required/><button class="sa-btn sa-primary">Upload Script</button></form>
 <table class="sa-table"><thead><tr><th>Name</th><th>Version</th><th>Job type</th><th>SHA-256</th><th>Enabled</th><th>Action</th></tr></thead><tbody>
-<g:each in="${scripts}" var="script"><tr><td>${script.name?.encodeAsHTML()}</td><td>${script.scriptVersion?.encodeAsHTML()}</td><td>${script.jobType?.encodeAsHTML()}</td><td>${script.sha256?.encodeAsHTML()}</td><td>${script.enabled}</td><td><form method="post" action="/serverAdmin/setWorkerScriptEnabled"><input type="hidden" name="id" value="${script.id}"/><input type="hidden" name="enabled" value="${script.enabled ? 'false':'true'}"/><button class="sa-btn">${script.enabled ? 'Disable':'Enable'}</button></form><form method="post" action="${request.contextPath}/serverAdmin/deleteWorkerScript" onsubmit="return confirm('Permanently delete this script?');"><input type="hidden" name="id" value="${script.id}"/><button class="sa-btn" type="submit">Delete Script</button></form></td></tr></g:each></tbody></table>
+<g:each in="${scripts}" var="script"><tr><td>${script.name?.encodeAsHTML()}</td><td>${script.scriptVersion?.encodeAsHTML()}</td><td>${script.jobType?.encodeAsHTML()}</td><td>${script.sha256?.encodeAsHTML()}</td><td>${script.enabled}</td><td><form method="post" action="/serverAdmin/setWorkerScriptEnabled"><input type="hidden" name="id" value="${script.id}"/><input type="hidden" name="enabled" value="${script.enabled ? 'false':'true'}"/><button class="sa-btn">${script.enabled ? 'Disable':'Enable'}</button></form><form method="post" action="${request.contextPath}/serverAdmin/deleteWorkerScript" onsubmit="return confirm(this.forceDelete.checked ? 'FORCE DELETE this script and detach its historical job references? Active jobs cannot be overridden.' : 'Permanently delete this script?');"><input type="hidden" name="id" value="${script.id}"/><label class="sa-muted"><input type="checkbox" name="forceDelete" value="true"/> Force delete (override history restriction)</label><button class="sa-btn" type="submit">Delete Script</button></form></td></tr></g:each></tbody></table>
 </div></section></g:elseif>
 <g:elseif test="${tab=='email'}"><section class="sa-card"><h2>Email Server Connection</h2><div class="sa-body">
 <p>SMTP configuration is read from server environment variables. Passwords are never displayed.</p>
@@ -116,6 +120,17 @@
 </div></section></g:elseif>
 <g:elseif test="${tab=='auth'}"><section class="sa-card"><h2>Authorization</h2><div class="sa-body sa-muted">OAuth2 authorization integration will be added later.</div></section></g:elseif>
 <g:elseif test="${tab=='maintenance'}">
+<section class="sa-card"><h2>Generate Missing Lightweight 3D Previews</h2><div class="sa-body">
+<p>Scan the latest revision of every PLM part and queue a GLB conversion only when its 3D preview is missing. Existing previews and already queued conversions are skipped.</p>
+<form action="${request.contextPath}/serverAdmin/enqueueMissingGlb" method="post" onsubmit="return confirm(this.forceRecreate.checked ? 'Force regeneration of GLB previews for ALL latest parts? Existing previews remain available until replacement.' : 'Scan all latest PLM parts and queue missing GLB previews?');">
+<label for="glbScriptId">Conversion script</label>
+<select id="glbScriptId" name="scriptId" required>
+<g:each in="${glbScripts}" var="script"><option value="${script.id}">${script.name?.encodeAsHTML()} (${script.scriptVersion?.encodeAsHTML()})</option></g:each>
+</select>
+<label class="sa-muted" style="display:block;margin:12px 0"><input type="checkbox" name="forceRecreate" value="true"/> Force recreation of lightweight 3D data for all parts (GLB)</label>
+<button class="sa-btn sa-primary" type="submit" ${!glbScripts ? 'disabled' : ''}>Create Missing 3D Jobs</button>
+</form><p class="sa-muted">Only enabled CAD_TO_GLB scripts are listed. Jobs route to 3D Viewer.</p>
+</div></section>
 <section class="sa-card"><h2>Export and Metadata Snapshot</h2><div class="sa-body">
 <p>Export PLM part metadata as CSV, or download a ZIP containing the metadata CSV and a backup scope notice.</p>
 <a href="${request.contextPath}/serverAdmin/exportParts" class="sa-btn sa-primary">Export Parts Metadata (CSV)</a>

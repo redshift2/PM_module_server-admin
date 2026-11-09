@@ -34,11 +34,22 @@ class WorkerScriptService {
         script.enabled = enabled
         script.save(failOnError:true,flush:true)
     }
-    void deleteScript(Long id) {
+    void deleteScript(Long id, boolean force = false) {
         WorkerScript script = WorkerScript.get(id)
         if (!script) throw new IllegalArgumentException('Script not found')
-        if (ServerJob.countByAssignedScriptId(id) > 0)
-            throw new IllegalStateException('Script is referenced by job history. Disable it instead.')
+        List<ServerJob> referenced = ServerJob.findAllByAssignedScriptId(id)
+        if (referenced && !force)
+            throw new IllegalStateException('Script is referenced by job history. Select Force delete to override.')
+        if (force) {
+            if (referenced.any { it.status in ['ASSIGNED', 'RUNNING', 'UPLOADING_RESULTS'] })
+                throw new IllegalStateException('Cannot force-delete a script used by an active job.')
+            // Keep historical jobs but detach their script reference.
+            referenced.each { ServerJob job ->
+                job.assignedScriptId = null
+                job.save(failOnError:true)
+            }
+            ServerJob.withSession { it.flush() }
+        }
         // Delete DB record first; a missing file is harmless, but a failed DB delete
         // must not remove the script needed by the dispatcher.
         String storageFile = script.storageFile

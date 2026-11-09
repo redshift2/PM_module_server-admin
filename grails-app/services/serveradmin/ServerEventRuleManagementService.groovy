@@ -22,15 +22,16 @@ class ServerEventRuleManagementService {
             throw new IllegalArgumentException('Unknown event type')
     }
 
-    ServerEventRule createRule(String name, String type, String action, String destination, String jobDestination) {
+    ServerEventRule createRule(String name, String type, String action, String destination, String jobDestination, String routeData = null) {
         validateEventType(type)
         String dest = validatedDestination(action, destination, jobDestination)
         return new ServerEventRule(name: name, eventType: type,
-            actionType: action, destination: dest).save(failOnError: true, flush: true)
+            actionType: action, destination: dest,
+            routeData: action == 'SUBMIT_JOB' ? JobResultRoute.validate(routeData ?: JobResultRoute.legacyDefault(dest)) : 'JOB_RESULTS').save(failOnError: true, flush: true)
     }
 
     ServerEventRule updateRule(Long id, String name, String type, String action,
-                               String destination, String jobDestination, boolean enabled) {
+                               String destination, String jobDestination, boolean enabled, String routeData = null) {
         if (id == null) throw new IllegalArgumentException('Rule ID required')
         ServerEventRule rule = ServerEventRule.get(id)
         if (!rule) throw new IllegalArgumentException('Rule not found')
@@ -40,6 +41,7 @@ class ServerEventRuleManagementService {
         rule.eventType = type
         rule.actionType = action
         rule.destination = dest
+        rule.routeData = action == 'SUBMIT_JOB' ? JobResultRoute.validate(routeData ?: JobResultRoute.legacyDefault(dest)) : 'JOB_RESULTS'
         rule.enabled = enabled
         return rule.save(failOnError: true, flush: true)
     }

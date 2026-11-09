@@ -56,7 +56,18 @@ class WorkerDispatchService {
         for (ServerJob job : ServerJob.findAllByStatus('QUEUED',
                 [sort:'dateCreated',order:'asc',max:200])) {
             if (!matches(worker, job.jobType)) continue
-            WorkerScript script = WorkerScript.findByJobTypeAndEnabled(job.jobType, true,
+            WorkerScript script = null
+            try {
+                def jobParams = new JsonSlurper().parseText(job.parametersJson ?: '{}')
+                if (jobParams.scriptId != null) {
+                    script = WorkerScript.get(Long.valueOf(jobParams.scriptId.toString()))
+                    if (!script || !script.enabled || script.jobType != job.jobType) continue
+                }
+            } catch (Exception ex) {
+                log.warn("Invalid job parameters for job ${job.id}", ex)
+                continue
+            }
+            if (script == null) script = WorkerScript.findByJobTypeAndEnabled(job.jobType, true,
                     [sort:'dateCreated', order:'desc'])
             if (!script || !job.packageFileName) continue
             job.assignedWorkerId = worker.workerId
@@ -139,7 +150,8 @@ class WorkerDispatchService {
             job.completedAt = new Date()
             job.resultMessage = 'Result ZIP received'
             job.save(failOnError:true,flush:true)
-            if (job.jobType in ['CAD_TO_GLB', 'CAD_TO_X3D']) {
+            String route = JobResultRoute.validate(job.routeData ?: JobResultRoute.legacyDefault(job.jobType))
+            if (route == '3D_VIEWER') {
                 try {
                     grailsApplication.mainContext.getBean('plmCadConversionService')
                         .importWorkerResult(job, dir.resolve(name))
@@ -150,7 +162,7 @@ class WorkerDispatchService {
                     job.save(failOnError:true,flush:true)
                 }
             }
-            else if (job.jobType != 'REMOTE_PACKAGE') {
+            else if (route == 'ATTACHMENTS') {
                 try {
                     grailsApplication.mainContext.getBean('plmGeneratedAttachmentImportService')
                         .importJobResult(job, dir.resolve(name))
@@ -160,6 +172,12 @@ class WorkerDispatchService {
                     job.resultMessage = ('Attachment import failed: ' + ex.message).take(2000)
                     job.save(failOnError:true, flush:true)
                 }
+            }
+            else if (route != 'JOB_RESULTS') {
+                // No importer is installed for this destination yet. Preserve the ZIP,
+                // but do not report a successful PLM import or misroute the payload.
+                job.resultMessage = ('Result ZIP stored; ' + route + ' importer not configured').take(2000)
+                job.save(failOnError:true, flush:true)
             }
         } finally { Files.deleteIfExists(tmp) }
     }

@@ -10,7 +10,7 @@ class ServerEventJobPackageService {
     def grailsApplication
     ServerJobService serverJobService
 
-    void enqueueEventJob(String jobType, Long eventId, String actor) {
+    void enqueueEventJob(String jobType, Long eventId, String actor, String routeData = null) {
         ServerEvent event = ServerEvent.get(eventId)
         if (!event) throw new IllegalArgumentException('Event not found: ' + eventId)
         if (!WorkerScript.findByJobTypeAndEnabled(jobType, true))
@@ -19,7 +19,7 @@ class ServerEventJobPackageService {
         if (!root) throw new IllegalStateException('SERVER_ADMIN_JOB_STORAGE not configured')
         Path dir = Paths.get(root).toAbsolutePath().normalize()
         Files.createDirectories(dir)
-        Map manifest = [jobType:jobType, eventId:event.id, eventType:event.eventType,
+        Map manifest = [routeData: JobResultRoute.validate(routeData ?: JobResultRoute.legacyDefault(jobType)), jobType:jobType, eventId:event.id, eventType:event.eventType,
             sourceModule:event.sourceModule, entityType:event.entityType,
             entityId:event.entityId, actor:event.actor, message:event.message]
         Path cadFile = null
@@ -44,7 +44,7 @@ class ServerEventJobPackageService {
                 manifest.inputFile = 'part.FCStd'
             }
         }
-        ServerJob job = serverJobService.submit(jobType, actor, manifest)
+        ServerJob job = serverJobService.submit(jobType, actor, manifest, manifest.routeData as String)
         Path tmp = Files.createTempFile(dir, 'event-job-', '.tmp')
         try {
             ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(tmp))

@@ -1,5 +1,6 @@
 package serveradmin
 
+import groovy.json.JsonSlurper
 import grails.plugin.springsecurity.annotation.Secured
 import org.springframework.web.multipart.MultipartFile
 import org.springframework.security.core.context.SecurityContextHolder
@@ -8,6 +9,7 @@ import org.springframework.security.core.context.SecurityContextHolder
 class ServerAdminController {
     def grailsPluginManager
     def springSecurityService
+    MissingGlbMaintenanceService missingGlbMaintenanceService
     ServerAdminMaintenanceService serverAdminMaintenanceService
     ServerAdminModuleInfoService serverAdminModuleInfoService
     ServerAdminMaterialsService serverAdminMaterialsService
@@ -46,8 +48,22 @@ class ServerAdminController {
                 workerNames[worker.workerId] = worker.workerName
             }
         }
+        // Resolve PLM part IDs from the job manifest without modifying job history.
+        Map<Long, Long> jobPartIds = [:]
+        jobs.each { ServerJob job ->
+            if (!job.parametersJson) return
+            try {
+                def parameters = new JsonSlurper().parseText(job.parametersJson)
+                def rawId = parameters instanceof Map ? parameters.partId : null
+                if (rawId != null && rawId.toString() ==~ /[0-9]+/) {
+                    jobPartIds[job.id] = Long.valueOf(rawId.toString())
+                }
+            } catch (Exception ignored) {
+                // Manually submitted jobs may have no PLM manifest.
+            }
+        }
         render(view: 'index', model: [tab: 'jobs', isAdmin: admin(), jobs: jobs,
-                                      workerNames: workerNames])
+                                      workerNames: workerNames, jobPartIds: jobPartIds, routeOptions: JobResultRoute.OPTIONS])
     }
 
     @Secured(['ROLE_ADMIN'])
@@ -83,7 +99,7 @@ class ServerAdminController {
         if (request.method != 'POST') { response.sendError(405); return }
         try {
             serverJobService.submit(params.jobType as String,
-                springSecurityService.currentUser?.username as String)
+                springSecurityService.currentUser?.username as String, [:], params.routeData as String)
             flash.message = 'Job submitted to queue.'
         } catch (Exception ex) {
             flash.error = ex.message
@@ -93,7 +109,7 @@ class ServerAdminController {
 
     @Secured(['ROLE_ADMIN'])
     def events() {
-        render(view: 'index', model: [tab: 'events', isAdmin: true, events: serverEventService.recent(), rules: ServerEventRule.list(sort:'id', order:'desc'), activeJobTypes: WorkerScript.findAllByEnabled(true).collect { it.jobType }.unique().sort(), actions: serverEventActionService.recent()])
+        render(view: 'index', model: [tab: 'events', isAdmin: true, events: serverEventService.recent(), rules: ServerEventRule.list(sort:'id', order:'desc'), activeJobTypes: WorkerScript.findAllByEnabled(true).collect { it.jobType }.unique().sort(), routeOptions: JobResultRoute.OPTIONS, actions: serverEventActionService.recent()])
     }
 
     @Secured(['ROLE_ADMIN'])
@@ -102,7 +118,7 @@ class ServerAdminController {
         try {
             serverEventRuleManagementService.createRule(params.name as String,
                 params.eventType as String, params.actionType as String,
-                params.destination as String, params.jobDestination as String)
+                params.destination as String, params.jobDestination as String, params.routeData as String)
             flash.message = 'Event rule saved.'
         } catch (Exception ex) { log.warn('Create event rule failed', ex); flash.error = ex.message }
         response.sendRedirect(request.contextPath + '/serverAdmin/events')
@@ -115,7 +131,7 @@ class ServerAdminController {
             serverEventRuleManagementService.updateRule(params.long('id'),
                 params.name as String, params.eventType as String,
                 params.actionType as String, params.destination as String,
-                params.jobDestination as String, params.enabled == 'true')
+                params.jobDestination as String, params.enabled == 'true', params.routeData as String)
             flash.message = 'Event rule updated.'
         } catch (Exception ex) { log.warn('Update event rule failed', ex); flash.error = ex.message }
         response.sendRedirect(request.contextPath + '/serverAdmin/events')
@@ -145,7 +161,7 @@ class ServerAdminController {
     def deleteWorkerScript() {
         if (request.method != 'POST') { response.sendError(405); return }
         try {
-            workerScriptService.deleteScript(params.long('id'))
+            workerScriptService.deleteScript(params.long('id'), params.boolean('forceDelete'))
             flash.message = 'Script deleted.'
         } catch (Exception ex) { log.warn('Delete script failed', ex); flash.error = ex.message }
         response.sendRedirect(request.contextPath + '/serverAdmin/workers')
@@ -175,7 +191,7 @@ class ServerAdminController {
         ServerJob job
         try {
             MultipartFile upload = request.getFile('file')
-            job = serverJobService.submit('REMOTE_PACKAGE', springSecurityService.currentUser?.username as String)
+            job = serverJobService.submit('REMOTE_PACKAGE', springSecurityService.currentUser?.username as String, [:], params.routeData as String)
             String storedFileName = serverJobPackageService.store(upload, job.id)
             serverJobService.setPackageFileName(job.id as Long, storedFileName)
             flash.message = 'ZIP job queued for an approved worker.'
@@ -205,7 +221,10 @@ class ServerAdminController {
     def workers() {
         render(view:'index', model:[tab:'workers', isAdmin:true,
             workers:RemoteWorker.list(sort:'dateCreated',order:'desc'),
-            scripts:WorkerScript.list(sort:'dateCreated',order:'desc')])
+            scripts:WorkerScript.list(sort:'dateCreated',order:'desc'),
+            activeJobsByWorker: ServerJob.findAllByStatusInList(['ASSIGNED','RUNNING','UPLOADING_RESULTS'])
+                .findAll { it.assignedWorkerId }
+                .groupBy { it.assignedWorkerId }])
     }
 
     @Secured(['permitAll'])
@@ -357,7 +376,24 @@ class ServerAdminController {
     def authorization() { render(view: 'index', model: [tab: 'auth', isAdmin: true]) }
 
     @Secured(['ROLE_ADMIN'])
-    def maintenance() { render(view: 'index', model: [tab: 'maintenance', isAdmin: true]) }
+    def maintenance() { render(view: 'index', model: [tab: 'maintenance', isAdmin: true,
+        glbScripts: WorkerScript.findAllByJobTypeAndEnabled('CAD_TO_GLB', true, [sort:'name'])]) }
+
+    @Secured(['ROLE_ADMIN'])
+    def enqueueMissingGlb() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            Long scriptId = params.long('scriptId')
+            if (scriptId == null) throw new IllegalArgumentException('Select a GLB script')
+            Map summary = missingGlbMaintenanceService.enqueue(scriptId,
+                springSecurityService.currentUser?.username as String, params.boolean('forceRecreate'))
+            flash.message = "GLB maintenance: scanned ${summary.scanned}, existing ${summary.existing}, queued ${summary.queued}, skipped ${summary.skipped}, errors ${summary.errors}."
+        } catch (Exception ex) {
+            log.error('Missing GLB maintenance failed', ex)
+            flash.error = 'Unable to enqueue missing GLB previews: ' + ex.message
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/maintenance')
+    }
 
     @Secured(['ROLE_ADMIN'])
     def exportParts() {

@@ -5,6 +5,7 @@ class ServerEventAction {
     ServerEvent event
     ServerEventRule rule
     String actionType
+    String routeData = 'JOB_RESULTS'
     String status = 'QUEUED'
     String destination
     String resultMessage
@@ -12,6 +13,7 @@ class ServerEventAction {
     Date lastUpdated
     Date completedAt
     static constraints = {
+        routeData nullable: true, maxSize: 32
         event nullable:false
         rule nullable:false
         actionType blank:false, maxSize:32

@@ -9,11 +9,12 @@ import org.springframework.transaction.annotation.Propagation
 class ServerJobService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    ServerJob submit(String jobType, String submittedBy, Map params = [:]) {
+    ServerJob submit(String jobType, String submittedBy, Map params = [:], String routeData = null) {
         if (!WorkerScript.findByJobTypeAndEnabled(jobType, true)) throw new IllegalArgumentException('No enabled worker script for job type: ' + jobType)
+        String route = JobResultRoute.validate(routeData ?: JobResultRoute.legacyDefault(jobType))
         String json = JsonOutput.toJson(params ?: [:])
         if (json.length() > 4000) throw new IllegalArgumentException('Job parameters too long')
-        new ServerJob(jobType: jobType, submittedBy: submittedBy, parametersJson: json,
+        new ServerJob(jobType: jobType, routeData: route, submittedBy: submittedBy, parametersJson: json,
             status: 'QUEUED').save(failOnError: true)
     }
 

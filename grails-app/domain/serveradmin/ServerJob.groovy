@@ -3,6 +3,7 @@ package serveradmin
 /** A queued request, not an executable command. */
 class ServerJob {
     String jobType
+    String routeData = 'JOB_RESULTS'
     String status = 'QUEUED'
     String submittedBy
     String parametersJson
@@ -18,6 +19,7 @@ class ServerJob {
     Date startedAt
     Date completedAt
     static constraints = {
+        routeData nullable: true, maxSize: 32
         jobType blank: false, maxSize: 80
         status blank: false, maxSize: 24
         submittedBy nullable: true, maxSize: 120

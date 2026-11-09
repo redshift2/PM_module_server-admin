@@ -61,7 +61,8 @@ class ServerEventJobDispatchService {
                 ServerEvent event = action.event
                 String jobType = action.destination
                 grailsApplication.mainContext.getBean('serverEventJobPackageService')
-                    .enqueueEventJob(jobType, event.id, event.actor ?: 'event-manager')
+                    .enqueueEventJob(jobType, event.id, event.actor ?: 'event-manager',
+                        action.routeData ?: JobResultRoute.legacyDefault(jobType))
                 finish(id, true, jobType + ' job created')
             } catch (Exception ex) {
                 log.error("Event action ${id ?: 'claim'} failed", ex)
