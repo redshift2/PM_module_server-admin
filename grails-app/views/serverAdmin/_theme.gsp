@@ -1,39 +1,24 @@
 <style>
-html,body{background:#22272e;color:#e9eef5;margin:0;font:14px system-ui,-apple-system,"Segoe UI",sans-serif}
-.sa-header{background:#195d8f;color:white;padding:20px 22px;display:flex;justify-content:space-between;align-items:center;gap:12px}
-.sa-header h1{font-size:23px;margin:0}.sa-main{padding:22px;max-width:1600px;margin:auto}
-.sa-tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px}.sa-tabs a,.sa-btn{border:1px solid #607182;background:#414c59;color:#a9d6ff;padding:10px 13px;border-radius:4px;text-decoration:none;cursor:pointer;font:inherit}
-.sa-tabs a.active,.sa-primary{background:#2079b2;color:white;border-color:#298cc9}
-.sa-card{border:1px solid #4b5867;background:#2a3038;border-radius:5px;margin-bottom:17px;overflow:hidden}
-.sa-card h2{font-size:16px;margin:0;background:#353e48;padding:14px 16px;border-bottom:1px solid #4b5867}.sa-body{padding:16px}
-.sa-table{border-collapse:collapse;width:100%}.sa-table th{text-align:left;background:#3a4653;padding:12px}.sa-table td{padding:11px;border-top:1px solid #45515f}.sa-table tr:nth-child(even){background:#303943}
-.sa-muted{color:#bbc8d4}.sa-alert{padding:12px;margin-bottom:14px;background:#294e42;border:1px solid #4b9a78}.sa-error{background:#5a3333;border-color:#a85a5a}
-.sa-file{background:#303943;color:#fff;padding:8px;border:1px solid #607182}
+/* Server Administration content; navigation and header come from the shared server shell. */
+.pm-shell .sa-main { padding:20px 10px 30px; max-width:none; margin:0; color:var(--pm-text); font:14px system-ui,-apple-system,"Segoe UI",sans-serif; }
+.pm-shell .sa-main * { box-sizing:border-box; }
+.pm-shell .sa-tabs { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:18px; }
+.pm-shell .sa-tabs a,.pm-shell .sa-btn { border:1px solid var(--pm-border); background:var(--pm-surface); color:var(--pm-text); padding:10px 13px; border-radius:5px; text-decoration:none; cursor:pointer; font:inherit; display:inline-block; }
+.pm-shell .sa-tabs a:hover,.pm-shell .sa-btn:hover,.pm-shell .sa-tabs a.active,.pm-shell .sa-primary { background:var(--pm-blue); color:#fff; border-color:var(--pm-blue); }
+.pm-shell .sa-card { border:1px solid var(--pm-border); background:var(--pm-surface); border-radius:6px; margin-bottom:17px; overflow:hidden; }
+.pm-shell .sa-card h2 { font-size:16px; margin:0; background:var(--pm-sidebar); padding:14px 16px; border-bottom:1px solid var(--pm-border); }
+.pm-shell .sa-body { padding:16px; overflow-x:auto; }
+.pm-shell .sa-table { border-collapse:collapse; width:100%; }
+.pm-shell .sa-table th { text-align:left; background:var(--pm-sidebar); padding:12px; }
+.pm-shell .sa-table td { padding:11px; border-top:1px solid var(--pm-border); }
+.pm-shell .sa-table tr:nth-child(even) { background:color-mix(in srgb,var(--pm-surface) 75%,var(--pm-sidebar)); }
+.pm-shell .sa-muted { color:var(--pm-muted); }
+.pm-shell .sa-alert { padding:12px; margin-bottom:14px; background:#294e42; border:1px solid #4b9a78; }
+.pm-shell .sa-error { background:#5a3333; border-color:#a85a5a; }
+.pm-shell .sa-main input,.pm-shell .sa-main select,.pm-shell .sa-main textarea { background:var(--pm-bg); color:var(--pm-text); padding:8px; border:1px solid var(--pm-border); border-radius:4px; max-width:100%; }
+.pm-shell .sa-main input[type="checkbox"],.pm-shell .sa-main input[type="radio"] { padding:0; }
+.pm-shell .sa-main a:not(.sa-btn):not(.active) { color:#82bff5; }
+.pm-shell[data-pm-theme="light"] .sa-main a:not(.sa-btn):not(.active) { color:#155a99; }
+.pm-shell .sa-file { background:var(--pm-bg); color:var(--pm-text); }
+@media(max-width:700px) { .pm-shell .sa-main { padding:12px 0; } .pm-shell .sa-body { padding:10px; } }
 </style>
-<style>
-/* Same host-layout title fix used by Materials and PLM: cover the host title
-   with the module header, and reserve the header's height in page flow. */
-html, body { margin:0 !important; padding:0 !important; }
-.sa-header {
-  position:fixed !important;
-  top:0 !important; left:0 !important; right:0 !important;
-  z-index:1000 !important;
-  margin:0 !important;
-  box-sizing:border-box !important;
-  min-height:76px;
-}
-.sa-main { padding-top:calc(76px + 22px) !important; }
-@media(max-width:700px) { .sa-header { min-height:76px; } }
-</style>
-<script>
-(function(){
-  function syncHeader(){
-    var header=document.querySelector('.sa-header');
-    var main=document.querySelector('.sa-main');
-    if(header && main){ main.style.paddingTop=(header.offsetHeight+22)+'px'; }
-  }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',syncHeader);
-  else syncHeader();
-  window.addEventListener('resize',syncHeader);
-})();
-</script>

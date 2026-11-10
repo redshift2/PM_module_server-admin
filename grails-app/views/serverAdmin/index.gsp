@@ -1,6 +1,10 @@
-<!doctype html>
-<html><head><title>Server Administration</title><g:render template="theme"/></head><body>
-<header class="sa-header"><h1>Server Administration</h1><a class="sa-btn" href="${request.contextPath}/">⌂ Main Menu</a></header>
+<div class="pm-shell" data-pm-theme="dark">
+<g:render template="/shared/pmShellStyles"/>
+<g:render template="/shared/pmShellSidebar"/>
+<div class="pm-main">
+<g:render template="/shared/pmShellHeader" model="[moduleTitle:'Server Administration']"/>
+<main class="pm-content">
+<g:render template="theme"/>
 <main class="sa-main">
 <nav class="sa-tabs" aria-label="Server administration tabs">
 <a href="${request.contextPath}/serverAdmin/serverInfo" class="${tab=='info'?'active':''}">Server Info</a>
@@ -10,7 +14,7 @@
 <a href="${request.contextPath}/serverAdmin/maintenance" class="${tab=='maintenance'?'active':''}">Server Maintenance</a>
 <a href="${request.contextPath}/serverAdmin/events" class="${tab=='events'?'active':''}">Event Manager</a>
 <a href="${request.contextPath}/serverAdmin/emailServer" class="${tab=='email'?'active':''}">Email Server</a>
-<a href="/serverAdmin/workers" class="${tab=='workers'?'active':''}">Workers</a>
+<a href="${g.createLink(controller:'serverAdmin',action:'workers')}" class="${tab=='workers'?'active':''}">Workers</a>
 </g:if>
 </nav>
 <g:if test="${flash.message}"><div class="sa-alert">${flash.message.encodeAsHTML()}</div></g:if>
@@ -152,4 +156,8 @@
 </form>
 <p class="sa-muted">New CAD part ingestion requires the FreeCAD protobuf upload protocol and is not implemented in this first version.</p></div></section>
 </g:elseif>
-</main></body></html>
+</main>
+</main>
+</div>
+<g:render template="/shared/pmShellScript"/>
+</div>
