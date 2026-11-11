@@ -16,6 +16,12 @@
 <a href="${request.contextPath}/serverAdmin/emailServer" class="${tab=='email'?'active':''}">Email Server</a>
 <a href="${g.createLink(controller:'serverAdmin',action:'workers')}" class="${tab=='workers'?'active':''}">Workers</a>
 </g:if>
+<!-- PM_ATTACHMENT_PAGES_V2 -->
+<g:if test="${isAdmin}">
+<a href="${request.contextPath}/serverAdmin/attachmentFiles" class="${tab=='attachmentFiles'?'active':''}">Files</a>
+<a href="${request.contextPath}/serverAdmin/attachmentTagged" class="${tab=='attachmentTagged'?'active':''}">Tagged</a>
+<a href="${request.contextPath}/serverAdmin/attachmentTerms" class="${tab=='attachmentTerms'?'active':''}">Terms</a>
+</g:if>
 </nav>
 <g:if test="${flash.message}"><div class="sa-alert">${flash.message.encodeAsHTML()}</div></g:if>
 <g:if test="${flash.error}"><div class="sa-alert sa-error">${flash.error.encodeAsHTML()}</div></g:if>
@@ -110,6 +116,16 @@
 <g:elseif test="${w.status == 'APPROVED'}"><form method="post" action="/serverAdmin/setWorkerStatus"><input type="hidden" name="id" value="${w.id}"/><button class="sa-btn" name="status" value="REVOKED">Revoke</button></form></g:elseif>
 <form method="post" action="${request.contextPath}/serverAdmin/deleteWorker" onsubmit="return confirm('Permanently delete this worker?');"><input type="hidden" name="id" value="${w.id}"/><button class="sa-btn" type="submit">Delete Worker</button></form>
 </td></tr></g:each></tbody></table></div></section>
+<section class="sa-card"><h2>GitHub Script Catalog</h2><div class="sa-body">
+<p class="sa-muted">Refresh the approved repository manifest to see scripts available for installation. New scripts are installed disabled until reviewed and enabled.</p>
+<form method="post" action="${request.contextPath}/serverAdmin/refreshWorkerScriptCatalog"><button type="submit" class="sa-btn sa-primary">Refresh Scripts</button></form>
+<table class="sa-table"><thead><tr><th>Script</th><th>Version</th><th>Job Type</th><th>Description</th><th>Installed</th><th>Action</th></tr></thead><tbody>
+<g:each in="${catalogScripts}" var="entry" status="idx"><tr>
+<td>${entry.name?.encodeAsHTML()}</td><td>${entry.version?.encodeAsHTML()}</td><td>${entry.jobType?.encodeAsHTML()}</td><td>${entry.description?.encodeAsHTML()}</td>
+<td>${scripts.any { it.name == entry.name && it.scriptVersion == entry.version && it.jobType == entry.jobType } ? 'Yes' : 'No'}</td>
+<td><g:if test="${!scripts.any { it.name == entry.name && it.scriptVersion == entry.version && it.jobType == entry.jobType }}"><form method="post" action="${request.contextPath}/serverAdmin/installWorkerCatalogScript"><input type="hidden" name="index" value="${idx}"/><button type="submit" class="sa-btn">Install (Disabled)</button></form></g:if></td>
+</tr></g:each>
+</tbody></table></div></section>
 <section class="sa-card"><h2>Job-specific Python Scripts</h2><div class="sa-body"><p class="sa-muted">Upload an approved script version for a job type. Uploads are disabled by default. Enabled scripts are delivered with matching jobs.</p>
 <form method="post" action="/serverAdmin/uploadWorkerScript" enctype="multipart/form-data">
 <input name="name" placeholder="Script name" required maxlength="120"/><input name="version" placeholder="Version (e.g. 1.0)" required maxlength="50"/><input name="jobType" placeholder="Job type (e.g. CAD_TO_GLB)" required maxlength="80"/><input type="file" name="file" accept=".py" required/><button class="sa-btn sa-primary">Upload Script</button></form>
@@ -156,6 +172,89 @@
 </form>
 <p class="sa-muted">New CAD part ingestion requires the FreeCAD protobuf upload protocol and is not implemented in this first version.</p></div></section>
 </g:elseif>
+
+<g:elseif test="${tab=='attachmentFiles'}">
+<section class="sa-card"><h2>Files</h2><div class="sa-body">
+<p class="sa-muted">Active attachment files. Existing attachment download and preview endpoints remain unchanged.</p>
+<g:if test="${isAdmin}"><form method="post" enctype="multipart/form-data" action="${request.contextPath}/serverAdmin/attachmentUpload" style="margin-bottom:16px">
+<input type="file" name="file" class="sa-file" required /> <button class="sa-btn sa-primary" type="submit">Upload File</button>
+</form></g:if>
+<table class="sa-table"><thead><tr><th>ID</th><th>File</th><th>Size</th><th>Version</th><th>Actions</th></tr></thead><tbody>
+<g:each in="${attachmentFiles}" var="file"><tr><td>${file.id}</td><td>${file.originalName?.encodeAsHTML()}</td><td>${file.fileSize ?: 0} bytes</td><td>${file.version ?: '—'}</td><td><a class="sa-btn" href="${request.contextPath}/attachment/downloadBinAttachment/${file.id}">Download</a></td></tr></g:each>
+<g:if test="${!attachmentFiles}"><tr><td colspan="5">No active files found.</td></tr></g:if>
+</tbody></table>
+<div class="sa-pager"><g:if test="${attachmentPage>0}"><a class="sa-btn" href="${request.contextPath}/serverAdmin/attachmentFiles?page=${attachmentPage-1}">Previous</a></g:if>
+<g:if test="${attachmentFiles?.size()>=30}"><a class="sa-btn" href="${request.contextPath}/serverAdmin/attachmentFiles?page=${attachmentPage+1}">Next</a></g:if></div>
+</div></section></g:elseif>
+<g:elseif test="${tab=='attachmentTagged'}">
+<section class="sa-card"><h2>Tagged Files</h2><div class="sa-body">
+<div class="sa-tag-groups"><g:each in="${attachmentGroups}" var="group"><a class="sa-btn ${attachmentGroup==group?'sa-primary':''}" href="${request.contextPath}/serverAdmin/attachmentTagged?group=${group.toString().encodeAsURL()}">${group.toString().encodeAsHTML()}</a></g:each></div>
+<g:if test="${attachmentGroup}"><div class="sa-tag-layout"><div><h3>Tags</h3>
+<g:each in="${attachmentTerms}" var="term"><a class="sa-tag-item ${attachmentSelectedTerm?.id==term.id?'sa-selected':''}" href="${request.contextPath}/serverAdmin/attachmentTagged?group=${attachmentGroup.toString().encodeAsURL()}&amp;termId=${term.id}">${term.name?.encodeAsHTML()}</a></g:each>
+<g:if test="${!attachmentTerms}"><p>No tags in this group.</p></g:if></div><div><h3>${attachmentSelectedTerm ? 'Files: '+attachmentSelectedTerm.name : 'Select a tag'}</h3>
+<g:if test="${attachmentSelectedTerm}"><table class="sa-table"><thead><tr><th>File</th><th>Action</th></tr></thead><tbody>
+<g:each in="${attachmentTaggedFiles}" var="file"><tr><td>${file.originalName?.encodeAsHTML()}</td><td><a class="sa-btn" href="${request.contextPath}/attachment/downloadBinAttachment/${file.id}">Download</a></td></tr></g:each>
+<g:if test="${!attachmentTaggedFiles}"><tr><td colspan="2">No files assigned to this tag.</td></tr></g:if></tbody></table></g:if>
+</div></div></g:if></div></section></g:elseif>
+<g:elseif test="${tab=='attachmentTerms'}">
+<section class="sa-card"><h2>Terms</h2><div class="sa-body">
+<g:if test="${flash.message}"><p class="sa-notice">${flash.message.encodeAsHTML()}</p></g:if>
+<g:if test="${flash.error}"><p class="sa-error">${flash.error.encodeAsHTML()}</p></g:if>
+<div class="sa-term-filter"><label for="saTermGroup">Tag group</label>
+<select id="saTermGroup" onchange="window.location.href=this.value">
+<option value="${request.contextPath}/serverAdmin/attachmentTerms">All Groups</option>
+<g:each in="${attachmentGroups}" var="group"><option value="${request.contextPath}/serverAdmin/attachmentTerms?group=${group.toString().encodeAsURL()}" ${attachmentGroup==group?'selected':''}>${group.toString().encodeAsHTML()}</option></g:each>
+</select></div>
+<div class="sa-term-grid">
+<div><h3>Tag hierarchy</h3><div class="sa-term-tree" role="tree">
+<g:each in="${attachmentTermRows}" var="row"><div class="sa-term-node" role="treeitem" style="--depth:${Math.min(row.depth,20)}">
+<span class="sa-term-branch">${row.depth>0?'↳':'●'}</span>
+<span>${row.term.name?.encodeAsHTML()}</span>
+<g:if test="${isAdmin}"><a class="sa-term-edit" href="${request.contextPath}/serverAdmin/attachmentTerms?${attachmentGroup ? 'group=' + attachmentGroup.toString().encodeAsURL() + '&amp;' : ''}editId=${row.term.id}">Edit</a></g:if>
+</div></g:each>
+<g:if test="${!attachmentTermRows}"><p>No tags found.</p></g:if>
+</div></div>
+<g:if test="${isAdmin}"><div class="sa-term-editor">
+<h3>${attachmentEditTerm?'Edit tag':'Create tag'}</h3>
+<form method="post" action="${request.contextPath}/serverAdmin/attachmentSaveTerm">
+<input type="hidden" name="returnAll" value="${!attachmentGroup}" />
+<g:if test="${attachmentEditTerm}"><input type="hidden" name="group" value="${attachmentEditTerm.termGroupConfig.toString().encodeAsHTML()}" /></g:if>
+<g:else><label>Tag group</label><select name="group" id="saEditTermGroup" required><option value="">Select a group</option><g:each in="${attachmentGroups}" var="g"><option value="${g.toString().encodeAsHTML()}" ${attachmentGroup==g?'selected':''}>${g.toString().encodeAsHTML()}</option></g:each></select></g:else>
+<g:if test="${attachmentEditTerm}"><input type="hidden" name="id" value="${attachmentEditTerm.id}" /></g:if>
+<label>Tag name</label><input name="name" required value="${attachmentEditTerm?.name?.encodeAsHTML() ?: ''}" placeholder="e.g. ENGINEERING" />
+<label>Parent tag</label><select name="parentId"><option value="">— Root (no parent) —</option>
+<g:each in="${attachmentTermRows}" var="row"><g:if test="${row.term.id != attachmentEditTerm?.id}">
+<option value="${row.term.id}" data-group="${row.term.termGroupConfig.toString().encodeAsHTML()}" ${attachmentEditTerm?.parent?.id==row.term.id?'selected':''}>${'— ' * Math.min(row.depth,12)}${row.term.name?.encodeAsHTML()}</option>
+</g:if></g:each></select>
+<button type="submit" class="sa-btn sa-primary">${attachmentEditTerm?'Save Changes':'Create Tag'}</button>
+<g:if test="${attachmentEditTerm}"><a class="sa-btn" href="${request.contextPath}/serverAdmin/attachmentTerms${attachmentGroup ? '?group=' + attachmentGroup.toString().encodeAsURL() : ''}">Cancel</a></g:if>
+</form>
+<hr/><h3>Import tags from CSV</h3>
+<p class="sa-muted">UTF-8 CSV with headers <code>name,parent</code>. Leave parent empty for root tags. Existing names are updated; missing tags are created.</p>
+<form method="post" enctype="multipart/form-data" action="${request.contextPath}/serverAdmin/attachmentImportTermsCsv">
+<label>Import into group</label><select name="group" required><option value="">Select a group</option><g:each in="${attachmentGroups}" var="g"><option value="${g.toString().encodeAsHTML()}" ${attachmentGroup==g?'selected':''}>${g.toString().encodeAsHTML()}</option></g:each></select>
+<input type="file" name="file" accept=".csv,text/csv" required />
+<button type="submit" class="sa-btn">Import CSV</button>
+</form></div></g:if>
+</div>
+<script>
+(function(){
+  var group = document.getElementById('saEditTermGroup');
+  var parent = document.querySelector('.sa-term-editor select[name="parentId"]');
+  if (!parent) return;
+  function refresh(){
+    var selected = group ? group.value : '${attachmentEditTerm?.termGroupConfig?.toString() ?: attachmentGroup?.toString() ?: ''}';
+    Array.prototype.forEach.call(parent.options, function(o){
+      if (!o.value) return;
+      o.hidden = o.disabled = !selected || o.getAttribute('data-group') !== selected;
+      if (o.disabled && o.selected) parent.value = '';
+    });
+  }
+  if (group) group.addEventListener('change', refresh);
+  refresh();
+})();
+</script>
+</div></section></g:elseif>
 </main>
 </main>
 </div>

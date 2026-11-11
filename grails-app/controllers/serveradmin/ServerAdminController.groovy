@@ -4,9 +4,11 @@ import groovy.json.JsonSlurper
 import grails.plugin.springsecurity.annotation.Secured
 import org.springframework.web.multipart.MultipartFile
 import org.springframework.security.core.context.SecurityContextHolder
+import grails.gorm.transactions.Transactional
 
 @Secured(['ROLE_PLM_USER', 'ROLE_ADMIN'])
 class ServerAdminController {
+    def taackAttachmentService
     def grailsPluginManager
     def springSecurityService
     MissingGlbMaintenanceService missingGlbMaintenanceService
@@ -22,6 +24,7 @@ class ServerAdminController {
     ServerAdminEmailService serverAdminEmailService
     RemoteWorkerService remoteWorkerService
     WorkerScriptService workerScriptService
+    WorkerScriptCatalogService workerScriptCatalogService
     WorkerDispatchService workerDispatchService
     ServerEventJobDispatchService serverEventJobDispatchService
 
@@ -218,10 +221,44 @@ class ServerAdminController {
 
 
     @Secured(['ROLE_ADMIN'])
+    def refreshWorkerScriptCatalog() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            List<Map> scripts = workerScriptCatalogService.refresh()
+            session.workerScriptCatalog = scripts
+            flash.message = 'GitHub catalog refreshed: ' + scripts.size() + ' script(s).'
+        } catch (Exception ex) {
+            log.warn('Worker script catalog refresh failed', ex)
+            flash.error = 'Unable to refresh script catalog: ' + ex.message
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/workers')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def installWorkerCatalogScript() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            int index = params.int('index') == null ? -1 : params.int('index')
+            List<Map> scripts = session.workerScriptCatalog instanceof List ? (List<Map>) session.workerScriptCatalog : []
+            if (index < 0 || index >= scripts.size()) throw new IllegalArgumentException('Refresh the catalog first')
+            // Revalidate against the current remote manifest to prevent trusting client input.
+            Map candidate = scripts[index]
+            if (!workerScriptCatalogService.refresh().contains(candidate)) throw new IllegalArgumentException('Catalog has changed; refresh it')
+            workerScriptCatalogService.install(candidate, springSecurityService.currentUser?.username as String)
+            flash.message = 'Script installed (disabled). Enable it after review.'
+        } catch (Exception ex) {
+            log.warn('Worker catalog installation failed', ex)
+            flash.error = 'Script installation failed: ' + ex.message
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/workers')
+    }
+
+    @Secured(['ROLE_ADMIN'])
     def workers() {
         render(view:'index', model:[tab:'workers', isAdmin:true,
             workers:RemoteWorker.list(sort:'dateCreated',order:'desc'),
             scripts:WorkerScript.list(sort:'dateCreated',order:'desc'),
+            catalogScripts:(session.workerScriptCatalog instanceof List ? session.workerScriptCatalog : []),
             activeJobsByWorker: ServerJob.findAllByStatusInList(['ASSIGNED','RUNNING','UPLOADING_RESULTS'])
                 .findAll { it.assignedWorkerId }
                 .groupBy { it.assignedWorkerId }])
@@ -456,6 +493,171 @@ class ServerAdminController {
             }
         }
         response.sendRedirect(request.contextPath + '/serverAdmin/maintenance')
+    }
+
+
+    // PM_ATTACHMENT_PAGES_V2 - Native Server Admin attachment administration.
+    // Do not replace AttachmentController: PLM and other modules use its APIs.
+    def attachmentFiles() {
+        int page = Math.max(0, Math.min(100000, params.int('page') ?: 0))
+        int size = 30
+        def files = attachment.Attachment.createCriteria().list(max:size, offset:page*size) {
+            eq('active', true)
+            order('id','desc')
+        }
+        render(view:'index', model:[tab:'attachmentFiles',isAdmin:admin(),attachmentFiles:files,attachmentPage:page])
+    }
+
+    def attachmentTagged() {
+        def groups = attachment.config.TermGroupConfig.values().findAll { it.active }
+        String requested = params.group?.toString()
+        def group = groups.find { it.toString() == requested }
+        def terms = group ? attachment.Term.findAllByActiveAndTermGroupConfig(true, group, [sort:'name',order:'asc']) : []
+        Long termId = params.long('termId')
+        def selectedTerm = termId ? attachment.Term.get(termId) : null
+        if (selectedTerm && (!selectedTerm.active || selectedTerm.termGroupConfig != group)) selectedTerm = null
+        def taggedFiles = selectedTerm ? attachment.Attachment.executeQuery(
+            'select distinct a from Attachment a join a.documentCategory.tags t where a.active = true and t.id = :termId order by a.id desc',
+            [termId:selectedTerm.id], [max:100]) : []
+        render(view:'index', model:[tab:'attachmentTagged',isAdmin:admin(),attachmentGroups:groups,
+            attachmentGroup:group,attachmentTerms:terms,attachmentSelectedTerm:selectedTerm,attachmentTaggedFiles:taggedFiles])
+    }
+
+    // PM_TERMS_TREE_V3: Tree navigation, parent selection, edit and CSV import.
+    def attachmentTerms() {
+        def groups = attachment.config.TermGroupConfig.values().findAll { it.active }
+        def group = groups.find { it.toString() == params.group?.toString() }
+        def terms = group ? attachment.Term.findAllByActiveAndTermGroupConfig(true, group, [sort:'name',order:'asc']) : attachment.Term.findAllByActive(true, [sort:'name',order:'asc'])
+        def byParent = terms.groupBy { it.parent?.id }
+        def rows = []
+        def visited = [] as Set
+        Closure walk
+        walk = { term, int depth ->
+            if (visited.contains(term.id)) return
+            visited.add(term.id)
+            rows << [term:term,depth:depth]
+            (byParent[term.id] ?: []).each { child -> walk(child,depth+1) }
+        }
+        terms.findAll { !it.parent || !terms.any { other -> other.id == it.parent?.id } }.each { walk(it,0) }
+        terms.each { walk(it,0) } // Orphan/cyclic records remain visible.
+        def selected = params.long('editId') ? terms.find { it.id == params.long('editId') } : null
+        render(view:'index', model:[tab:'attachmentTerms',isAdmin:admin(),attachmentGroups:groups,
+            attachmentGroup:group,attachmentTerms:terms,attachmentTermRows:rows,attachmentEditTerm:selected])
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    @Transactional
+    def attachmentSaveTerm() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        def group = attachment.config.TermGroupConfig.values().find { it.active && it.toString() == params.group?.toString() }
+        String name = params.name?.toString()?.trim()
+        def term = params.long('id') ? attachment.Term.get(params.long('id')) : new attachment.Term(active:true)
+        def parent = params.long('parentId') ? attachment.Term.get(params.long('parentId')) : null
+        if (!group || !term || (term.id && term.termGroupConfig != group) || !name || name.any { Character.isWhitespace(it as char) } ||
+            (parent && (!parent.active || parent.termGroupConfig != group))) {
+            flash.error = 'Invalid group, name or parent.'
+        } else {
+            term.name = name
+            term.termGroupConfig = group
+            term.parent = parent
+            def translations = term.translations instanceof Map ? new LinkedHashMap(term.translations) : [:]
+            translations['en'] = name
+            term.translations = translations
+            if (term.save(flush:true)) flash.message = 'Tag saved.'
+            else flash.error = term.errors?.toString() ?: 'Tag could not be saved.'
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/attachmentTerms' +
+            (params.returnAll == 'true' ? '' : '?group=' + java.net.URLEncoder.encode(params.group?.toString() ?: '', 'UTF-8')))
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    @Transactional
+    def attachmentImportTermsCsv() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        def group = attachment.config.TermGroupConfig.values().find { it.active && it.toString() == params.group?.toString() }
+        def upload = request.getFile('file')
+        if (!group || !upload || upload.empty) {
+            flash.error = 'Choose a tag group and a CSV file.'
+        } else {
+            try {
+                def records = []
+                upload.inputStream.withReader('UTF-8') { reader ->
+                    def csv = new org.apache.commons.csv.CSVParser(reader,
+                        org.apache.commons.csv.CSVFormat.DEFAULT.withFirstRecordAsHeader().withIgnoreSurroundingSpaces())
+                    def headers = csv.headerMap.keySet().collect { it.toLowerCase().trim() }
+                    if (!headers.contains('name') || !headers.contains('parent'))
+                        throw new IllegalArgumentException('CSV requires name,parent columns.')
+                    csv.each { row ->
+                        def values = [:]
+                        row.toMap().each { k,val -> values[k.toLowerCase().trim()] = val?.trim() }
+                        if (values.name) records << values
+                    }
+                    csv.close()
+                }
+                if (records.size() > 2000) throw new IllegalArgumentException('Maximum 2000 tags per import.')
+                if (records.collect { it.name }.toSet().size() != records.size())
+                    throw new IllegalArgumentException('Duplicate tag names in CSV.')
+                def names = [:]
+                attachment.Term.findAllByActiveAndTermGroupConfig(true,group).each { names[it.name] = it }
+                int created = 0, updated = 0
+                // Pass 1: create terms without parents so CSV order is irrelevant.
+                records.each { row ->
+                    def name = row.name
+                    if (name.any { Character.isWhitespace(it as char) }) throw new IllegalArgumentException('Tag names cannot contain spaces: '+name)
+                    def term = names[name]
+                    if (!term) {
+                        term = new attachment.Term(name:name, termGroupConfig:group,active:true,translations:[en:name])
+                        if (!term.save(flush:true)) throw new IllegalArgumentException('Could not create '+name+': '+term.errors)
+                        names[name] = term
+                        created++
+                    } else updated++
+                }
+                // Pass 2: link parents, including parents declared later in the CSV.
+                records.each { row ->
+                    def term = names[row.name]
+                    def parent = row.parent ? names[row.parent] : null
+                    if (row.parent && !parent) throw new IllegalArgumentException('Unknown parent for '+row.name+': '+row.parent)
+                    term.parent = parent
+                    if (!term.save(flush:true)) throw new IllegalArgumentException('Invalid parent for '+row.name+': '+term.errors)
+                }
+                flash.message = "CSV imported: ${created} created, ${updated} updated."
+            } catch(Exception ex) {
+                log.warn('Term CSV import failed',ex)
+                flash.error = 'CSV import failed: '+ex.message
+            }
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/attachmentTerms?group=' +
+            java.net.URLEncoder.encode(params.group?.toString() ?: '', 'UTF-8'))
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def attachmentCreateTerm() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        String name = params.name?.toString()?.trim()
+        def group = attachment.config.TermGroupConfig.values().find { it.active && it.toString() == params.group?.toString() }
+        if (!group || !name || !(name ==~ /[A-Za-z0-9_\-]+/)) {
+            flash.error = 'Select a group and enter a term name without spaces.'
+        } else {
+            def term = new attachment.Term(name:name, termGroupConfig:group, active:true, translations:[en:name])
+            if (term.save(flush:true)) flash.message = 'Term created.'
+            else flash.error = term.errors?.toString() ?: 'Unable to create term.'
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/attachmentTerms?group=' +
+            java.net.URLEncoder.encode(params.group?.toString() ?: '', 'UTF-8'))
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def attachmentUpload() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            def f = request.getFile('file')
+            if (!f || f.empty) { flash.error = 'Select a file.' }
+            else { taackAttachmentService.createAttachment(f); flash.message = 'Attachment uploaded.' }
+        } catch(Exception ex) {
+            log.error('Server Admin attachment upload failed',ex)
+            flash.error = 'Upload failed: ' + ex.message
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/attachmentFiles')
     }
 
 }

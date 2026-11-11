@@ -3,3 +3,8 @@ plugins { id 'taack-grails-assets-plugin' }
 // to the host settings.gradle, then add implementation project(':serverAdmin')
 // to the host server's dependencies (matching the Materials module integration).
 grails { plugins { implementation project(':crew'); implementation project(':plm'); implementation project(':PM_module_materials') } }
+
+// CSV import support for Server Administration Terms.
+dependencies {
+    implementation 'org.apache.commons:commons-csv:1.11.0'
+}
