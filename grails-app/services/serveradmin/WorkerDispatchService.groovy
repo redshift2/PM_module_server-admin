@@ -162,6 +162,24 @@ class WorkerDispatchService {
                     job.save(failOnError:true,flush:true)
                 }
             }
+            else if (route == 'METADATA') {
+                try {
+                    // CAD_TO_META output is structured PLM data, not an attachment.
+                    // The PLM importer validates the CAD revision and SHA-1.
+                    grailsApplication.mainContext.getBean('plmCadMetadataImportService')
+                        .importResult(job, dir.resolve(name))
+                    // Attach only assembly.json from metadata jobs; never logs or metadata intermediates.
+                    grailsApplication.mainContext.getBean('plmGeneratedAttachmentImportService')
+                        .importJobResult(job, dir.resolve(name))
+                    job.resultMessage = 'CAD metadata imported into PLM'
+                    job.save(failOnError:true, flush:true)
+                } catch (Exception ex) {
+                    log.error('CAD metadata import failed for job ' + job.id, ex)
+                    job.status = 'FAILED'
+                    job.resultMessage = ('Metadata import failed: ' + ex.message).take(2000)
+                    job.save(failOnError:true, flush:true)
+                }
+            }
             else if (route == 'ATTACHMENTS') {
                 try {
                     grailsApplication.mainContext.getBean('plmGeneratedAttachmentImportService')
