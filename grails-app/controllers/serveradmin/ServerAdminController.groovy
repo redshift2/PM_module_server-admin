@@ -12,6 +12,7 @@ class ServerAdminController {
     def grailsPluginManager
     def springSecurityService
     MissingGlbMaintenanceService missingGlbMaintenanceService
+    CadMetadataRefreshMaintenanceService cadMetadataRefreshMaintenanceService
     ServerAdminMaintenanceService serverAdminMaintenanceService
     ServerAdminModuleInfoService serverAdminModuleInfoService
     ServerAdminMaterialsService serverAdminMaterialsService
@@ -78,6 +79,20 @@ class ServerAdminController {
         } catch (Exception ex) {
             log.error('Bulk completed-job deletion failed', ex)
             flash.error = 'Unable to delete completed jobs: ' + ex.message
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/jobQueue')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def cancelJob() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            Long jobId = params.long('id')
+            serverJobService.cancelJob(jobId)
+            flash.message = 'Job #' + jobId + ' cancelled.'
+        } catch (Exception ex) {
+            log.warn('Job cancellation failed', ex)
+            flash.error = 'Unable to cancel job: ' + ex.message
         }
         response.sendRedirect(request.contextPath + '/serverAdmin/jobQueue')
     }
@@ -414,7 +429,8 @@ class ServerAdminController {
 
     @Secured(['ROLE_ADMIN'])
     def maintenance() { render(view: 'index', model: [tab: 'maintenance', isAdmin: true,
-        glbScripts: WorkerScript.findAllByJobTypeAndEnabled('CAD_TO_GLB', true, [sort:'name'])]) }
+        glbScripts: WorkerScript.findAllByJobTypeAndEnabled('CAD_TO_GLB', true, [sort:'name']),
+        metadataScripts: WorkerScript.findAllByJobTypeAndEnabled('CAD_TO_META', true, [sort:'name'])]) }
 
     @Secured(['ROLE_ADMIN'])
     def enqueueMissingGlb() {
@@ -428,6 +444,22 @@ class ServerAdminController {
         } catch (Exception ex) {
             log.error('Missing GLB maintenance failed', ex)
             flash.error = 'Unable to enqueue missing GLB previews: ' + ex.message
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/maintenance')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def enqueueCadMetadataRefresh() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            Long scriptId = params.long('scriptId')
+            if (scriptId == null) throw new IllegalArgumentException('Select a metadata script')
+            Map summary = cadMetadataRefreshMaintenanceService.enqueue(scriptId,
+                springSecurityService.currentUser?.username as String)
+            flash.message = "CAD metadata refresh: scanned ${summary.scanned}, queued ${summary.queued}, skipped ${summary.skipped}, errors ${summary.errors}."
+        } catch (Exception ex) {
+            log.error('CAD metadata refresh failed', ex)
+            flash.error = 'Unable to enqueue CAD metadata refresh: ' + ex.message
         }
         response.sendRedirect(request.contextPath + '/serverAdmin/maintenance')
     }

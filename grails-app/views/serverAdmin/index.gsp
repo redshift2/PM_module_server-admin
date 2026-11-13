@@ -51,11 +51,16 @@
 <p class="sa-muted">ZIP is dispatched when an enabled REMOTE_PACKAGE script is available.</p></g:if>
 <table class="sa-table"><thead><tr><th>ID</th><th>Type</th><th>Route Data</th><th>Status</th><th>Submitted by</th><th>Package</th><th>Worker</th><th>Progress</th><th>Part</th><th>Result</th><th>Created</th><g:if test="${isAdmin}"><th>Actions</th></g:if></tr></thead><tbody>
 <g:each in="${jobs}" var="job"><tr><td>${job.id}</td><td>${job.jobType?.encodeAsHTML()}</td><td>${(routeOptions[job.routeData ?: serveradmin.JobResultRoute.legacyDefault(job.jobType)] ?: "Unknown").encodeAsHTML()}</td><td>${job.status?.encodeAsHTML()}</td><td>${job.submittedBy?.encodeAsHTML()}</td><td>${job.packageFileName?.encodeAsHTML() ?: "—"}</td><td>${job.assignedWorkerId ? ((workerNames[job.assignedWorkerId] ?: "Unknown worker").encodeAsHTML()) : "—"}</td><td>${job.progressPercent ?: 0}%</td><td><g:if test="${jobPartIds[job.id]}"><a class="sa-btn" href="${request.contextPath}/plm/showPart/${jobPartIds[job.id]}" title="Open PLM part #${jobPartIds[job.id]}">Open Part</a></g:if><g:else>—</g:else></td><td><g:if test="${job.resultFileName}"><a href="${request.contextPath}/serverAdmin/downloadJobResult?id=${job.id}">Download ZIP</a></g:if><g:else>—</g:else></td><td>${job.dateCreated}</td><g:if test="${isAdmin}"><td>
-<g:if test="${!(job.status in ['ASSIGNED','RUNNING','UPLOADING_RESULTS'])}">
+<g:if test="${job.status in ['QUEUED','ASSIGNED','RUNNING','UPLOADING_RESULTS']}">
+<form method="post" action="${request.contextPath}/serverAdmin/cancelJob" onsubmit="return confirm('Cancel job #${job.id}? The worker process will not be terminated.');" style="margin:0">
+<input type="hidden" name="id" value="${job.id}" />
+<button type="submit" class="sa-btn">Kill Job</button></form>
+</g:if>
+<g:else>
 <form method="post" action="${request.contextPath}/serverAdmin/deleteQueuedJob" onsubmit="return confirm('Delete job #${job.id}? This cannot be undone.');" style="margin:0">
 <input type="hidden" name="id" value="${job.id}" />
 <button type="submit" class="sa-btn">Delete</button></form>
-</g:if><g:else>In progress</g:else>
+</g:else>
 </td></g:if></tr></g:each>
 </tbody></table></div></section></g:elseif>
 <g:elseif test="${tab=='events'}"><section class="sa-card"><h2>Event Manager</h2><div class="sa-body">
@@ -150,6 +155,16 @@
 <label class="sa-muted" style="display:block;margin:12px 0"><input type="checkbox" name="forceRecreate" value="true"/> Force recreation of lightweight 3D data for all parts (GLB)</label>
 <button class="sa-btn sa-primary" type="submit" ${!glbScripts ? 'disabled' : ''}>Create Missing 3D Jobs</button>
 </form><p class="sa-muted">Only enabled CAD_TO_GLB scripts are listed. Jobs route to 3D Viewer.</p>
+</div></section>
+<section class="sa-card"><h2>Refresh CAD Metadata</h2><div class="sa-body">
+<p>Scan the latest CAD revision of every PLM part and queue a new CAD_TO_META worker job. This recalculates CAD properties, BOM and assembly metadata from the stored FreeCAD files. Existing active metadata jobs for the same part/version are skipped.</p>
+<form action="${request.contextPath}/serverAdmin/enqueueCadMetadataRefresh" method="post" onsubmit="return confirm('Queue CAD metadata regeneration for all latest PLM parts? This can create many worker jobs.');">
+<label for="metadataScriptId">Metadata script</label>
+<select id="metadataScriptId" name="scriptId" required>
+<g:each in="${metadataScripts}" var="script"><option value="${script.id}">${script.name?.encodeAsHTML()} (${script.scriptVersion?.encodeAsHTML()})</option></g:each>
+</select>
+<button class="sa-btn sa-primary" type="submit" ${!metadataScripts ? 'disabled' : ''}>Refresh CAD Metadata</button>
+</form><p class="sa-muted">Requires an enabled CAD_TO_META script and a matching approved worker. Only latest CAD revisions are scanned; released CAD content is not modified.</p>
 </div></section>
 <section class="sa-card"><h2>Export and Metadata Snapshot</h2><div class="sa-body">
 <p>Export PLM part metadata as CSV, or download a ZIP containing the metadata CSV and a backup scope notice.</p>

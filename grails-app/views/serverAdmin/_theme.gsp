@@ -40,6 +40,25 @@
 .sa-term-editor form{display:flex;flex-direction:column;gap:9px;margin-bottom:18px}.sa-term-editor .sa-btn{align-self:flex-start}
 .sa-error{padding:10px;border:1px solid #b91c1c;color:#b91c1c}.sa-notice{padding:10px;border:1px solid #15803d}
 @media(max-width:800px){.sa-term-grid{grid-template-columns:1fr}}
+
+/* High-contrast Server Admin palette: override inherited Bootstrap/global table colors. */
+.pm-shell .sa-main .sa-card,.pm-shell .sa-main .sa-body { color:var(--pm-text,#e6edf5); }
+.pm-shell .sa-main .sa-table,.pm-shell .sa-main .sa-table thead,
+.pm-shell .sa-main .sa-table tbody,.pm-shell .sa-main .sa-table tr,
+.pm-shell .sa-main .sa-table th,.pm-shell .sa-main .sa-table td {
+  color:var(--pm-text,#e6edf5) !important;
+  --bs-table-color:var(--pm-text,#e6edf5);
+  --bs-table-bg:transparent;
+  --bs-table-striped-color:var(--pm-text,#e6edf5);
+  --bs-table-striped-bg:transparent;
+  --bs-table-hover-color:var(--pm-text,#e6edf5);
+}
+.pm-shell .sa-main .sa-table th { background:var(--pm-sidebar,#102c49) !important; }
+.pm-shell .sa-main .sa-table td { background:transparent !important; }
+.pm-shell .sa-main .sa-table tr:nth-child(even) { background:var(--pm-sidebar,#253341); }
+.pm-shell .sa-main .sa-muted { color:var(--pm-muted,#bac9d9) !important; }
+.pm-shell .sa-main .sa-btn:disabled { opacity:.55; cursor:not-allowed; }
+.pm-shell .sa-main input,.pm-shell .sa-main select,.pm-shell .sa-main textarea { color:var(--pm-text,#e6edf5) !important; }
 </style>
 <style>
 /* PM_ATTACHMENT_ADMIN_STEP1 */

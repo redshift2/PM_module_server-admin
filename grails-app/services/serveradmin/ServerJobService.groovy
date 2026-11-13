@@ -52,6 +52,22 @@ class ServerJobService {
         return count
     }
 
+    /** Cancel without deleting the audit record or ZIP files. */
+    @Transactional
+    void cancelJob(Long jobId) {
+        if (jobId == null) throw new IllegalArgumentException('Job ID required')
+        int changed = ServerJob.executeUpdate(
+            """update ServerJob j set j.status = :cancelled,
+               j.completedAt = :now, j.leaseUntil = null,
+               j.resultMessage = :message
+               where j.id = :id and j.status in (:active)""",
+            [cancelled: 'CANCELLED', now: new Date(),
+             message: 'Cancelled by administrator', id: jobId,
+             active: ['QUEUED', 'ASSIGNED', 'RUNNING', 'UPLOADING_RESULTS']]
+        )
+        if (changed != 1) throw new IllegalStateException('Job not found or no longer active')
+    }
+
     @Transactional
     void deleteJob(Long jobId) {
         ServerJob job = ServerJob.get(jobId)
