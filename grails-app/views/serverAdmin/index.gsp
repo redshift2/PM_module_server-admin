@@ -10,7 +10,7 @@
 <a href="${request.contextPath}/serverAdmin/serverInfo" class="${tab=='info'?'active':''}">Server Info</a>
 <a href="${request.contextPath}/serverAdmin/jobQueue" class="${tab=='jobs'?'active':''}">Job Queue</a>
 <g:if test="${isAdmin}">
-<a href="${request.contextPath}/serverAdmin/authorization" class="${tab=='auth'?'active':''}">Authorization</a>
+<a href="/serverAdmin/authorization" class="${tab=='auth'?'active':''}">Authorization</a>
 <a href="${request.contextPath}/serverAdmin/maintenance" class="${tab=='maintenance'?'active':''}">Server Maintenance</a>
 <a href="${request.contextPath}/serverAdmin/events" class="${tab=='events'?'active':''}">Event Manager</a>
 <a href="${request.contextPath}/serverAdmin/emailServer" class="${tab=='email'?'active':''}">Email Server</a>
@@ -143,7 +143,31 @@
 <p class="sa-muted">Set SERVER_ADMIN_SMTP_HOST, SERVER_ADMIN_SMTP_PORT, SERVER_ADMIN_SMTP_FROM, SERVER_ADMIN_SMTP_USERNAME, SERVER_ADMIN_SMTP_PASSWORD and restart. SMTP transport supports STARTTLS and authentication.</p>
 <h3>Send test email</h3><form method="post" action="${request.contextPath}/serverAdmin/testEmail"><input type="email" name="to" placeholder="Recipient address" required /><button type="submit" class="sa-btn sa-primary">Send Test Email</button></form>
 </div></section></g:elseif>
-<g:elseif test="${tab=='auth'}"><section class="sa-card"><h2>Authorization</h2><div class="sa-body sa-muted">OAuth2 authorization integration will be added later.</div></section></g:elseif>
+<g:elseif test="${tab=='auth'}">
+<section class="sa-card"><h2>OpenID Connect Providers</h2><div class="sa-body">
+<p class="sa-muted">Configure Pocket ID or other OIDC providers. Enabled providers appear on the login page. Users can connect an external identity from Account Connections after signing in locally. Local login remains available.</p>
+<table class="sa-table"><thead><tr><th>Name</th><th>Issuer</th><th>Enabled</th><th>Client ID</th><th>Action</th></tr></thead><tbody>
+<g:each in="${oidcProviders}" var="p"><tr><td>${p.name?.encodeAsHTML()}</td><td>${p.issuer?.encodeAsHTML()}</td><td>${p.enabled ? 'Yes' : 'No'}</td><td>${p.clientId?.encodeAsHTML()}</td><td>
+<form method="post" action="/serverAdmin/disableOidcProvider"><input type="hidden" name="id" value="${p.id}"/><button class="sa-btn" type="submit">Disable</button></form>
+</td></tr></g:each>
+</tbody></table>
+<h3>Add or update provider</h3>
+<form method="post" action="/serverAdmin/saveOidcProvider" style="display:grid;gap:10px;max-width:640px">
+<label>Existing provider ID (leave blank for new)<input type="number" name="id" min="1" placeholder="New provider"/></label>
+<label>Provider name<input type="text" name="name" placeholder="Pocket ID" maxlength="100" required/></label>
+<label>Issuer URL<input type="url" name="issuer" placeholder="https://id.example.com" maxlength="500" required/></label>
+<label>Client ID<input type="text" name="clientId" maxlength="255" required/></label>
+<label>Client secret (leave empty to keep stored secret)<input type="password" name="clientSecret" autocomplete="new-password"/></label>
+<label>Scopes<input type="text" name="scopes" value="openid profile email"/></label>
+<label>Enabled <select name="enabled"><option value="false">No</option><option value="true">Yes (configuration only)</option></select></label>
+<button type="submit" class="sa-btn sa-primary">Save Provider</button>
+</form>
+<p class="sa-muted">Set PM_OIDC_SECRET_KEY (32 random bytes, base64) on the server before saving a client secret. Do not reuse an encryption key from another environment.</p>
+<h3>Linked identities</h3>
+<table class="sa-table"><thead><tr><th>Local user</th><th>Provider</th><th>Issuer</th><th>Linked at</th></tr></thead><tbody>
+<g:each in="${oidcLinks}" var="link"><tr><td>${link.user?.username?.encodeAsHTML()}</td><td>${link.provider?.name?.encodeAsHTML()}</td><td>${link.issuer?.encodeAsHTML()}</td><td>${link.linkedAt}</td></tr></g:each>
+</tbody></table>
+</div></section></g:elseif>
 <g:elseif test="${tab=='maintenance'}">
 <section class="sa-card"><h2>Generate Missing Lightweight 3D Previews</h2><div class="sa-body">
 <p>Scan the latest revision of every PLM part and queue a GLB conversion only when its 3D preview is missing. Existing previews and already queued conversions are skipped.</p>

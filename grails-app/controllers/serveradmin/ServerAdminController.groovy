@@ -26,6 +26,7 @@ class ServerAdminController {
     RemoteWorkerService remoteWorkerService
     WorkerScriptService workerScriptService
     WorkerScriptCatalogService workerScriptCatalogService
+    OidcProviderService oidcProviderService
     WorkerDispatchService workerDispatchService
     ServerEventJobDispatchService serverEventJobDispatchService
 
@@ -425,7 +426,34 @@ class ServerAdminController {
     }
 
     @Secured(['ROLE_ADMIN'])
-    def authorization() { render(view: 'index', model: [tab: 'auth', isAdmin: true]) }
+    def authorization() { render(view: 'index', model: [tab: 'auth', isAdmin: true,
+        oidcProviders: OidcProvider.list(sort:'name'), oidcLinks: OidcIdentity.list(sort:'linkedAt', order:'desc')]) }
+
+    @Secured(['ROLE_ADMIN'])
+    def saveOidcProvider() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            oidcProviderService.saveProvider([id:params.id, name:params.name, issuer:params.issuer,
+                clientId:params.clientId, clientSecret:params.clientSecret, scopes:params.scopes,
+                enabled:params.enabled])
+            flash.message = 'OIDC provider settings saved.'
+        } catch (Exception ex) {
+            log.warn('OIDC provider configuration failed: {}', ex.class.simpleName)
+            flash.error = 'Could not save OIDC provider: ' + ex.message
+        }
+        response.sendRedirect(request.contextPath + '/serverAdmin/authorization')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def disableOidcProvider() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        OidcProvider provider = OidcProvider.get(params.long('id'))
+        if (!provider) { response.sendError(404); return }
+        provider.enabled = false
+        provider.save(failOnError:true, flush:true)
+        flash.message = 'OIDC provider disabled.'
+        response.sendRedirect(request.contextPath + '/serverAdmin/authorization')
+    }
 
     @Secured(['ROLE_ADMIN'])
     def maintenance() { render(view: 'index', model: [tab: 'maintenance', isAdmin: true,
