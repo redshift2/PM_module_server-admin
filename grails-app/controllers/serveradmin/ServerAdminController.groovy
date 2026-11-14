@@ -274,6 +274,11 @@ class ServerAdminController {
         render(view:'index', model:[tab:'workers', isAdmin:true,
             workers:RemoteWorker.list(sort:'dateCreated',order:'desc'),
             scripts:WorkerScript.list(sort:'dateCreated',order:'desc'),
+            validScriptJobTypes: ((['CAD_TO_GLB', 'CAD_TO_X3D', 'CAD_TO_STEP', 'CAD_TO_DRW', 'CAD_TO_META', 'CAD_PROPERTIES'] +
+                WorkerScript.list().collect { it.jobType } +
+                ServerJob.list().collect { it.jobType } +
+                (session.workerScriptCatalog instanceof List ? session.workerScriptCatalog.collect { it.jobType } : []))
+                .findAll { it instanceof String && it ==~ /CAD_[A-Z0-9_]+/ }.unique().sort()),
             catalogScripts:(session.workerScriptCatalog instanceof List ? session.workerScriptCatalog : []),
             activeJobsByWorker: ServerJob.findAllByStatusInList(['ASSIGNED','RUNNING','UPLOADING_RESULTS'])
                 .findAll { it.assignedWorkerId }

@@ -21,7 +21,7 @@ class ServerEventJobDispatchService {
         return newTransaction().execute { tx ->
         for (ServerEventAction action : ServerEventAction.findAllByActionTypeAndStatus(
                 'SUBMIT_JOB', 'QUEUED', [sort:'dateCreated', order:'asc', max:20])) {
-            if (!WorkerScript.findByJobTypeAndEnabled(action.destination, true)) {
+            if (!(action.scriptId == null ? WorkerScript.findByJobTypeAndEnabled(action.destination, true) : WorkerScript.findByIdAndJobTypeAndEnabled(action.scriptId, action.destination, true))) {
                 action.status = 'FAILED'
                 action.resultMessage = 'No enabled worker script for: ' + action.destination
                 action.completedAt = new Date()
@@ -62,7 +62,7 @@ class ServerEventJobDispatchService {
                 String jobType = action.destination
                 grailsApplication.mainContext.getBean('serverEventJobPackageService')
                     .enqueueEventJob(jobType, event.id, event.actor ?: 'event-manager',
-                        action.routeData ?: JobResultRoute.legacyDefault(jobType))
+                        action.routeData ?: JobResultRoute.legacyDefault(jobType), action.scriptId)
                 finish(id, true, jobType + ' job created')
             } catch (Exception ex) {
                 log.error("Event action ${id ?: 'claim'} failed", ex)

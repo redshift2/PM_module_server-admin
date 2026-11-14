@@ -29,15 +29,20 @@ class WorkerScriptService {
     void setEnabled(Long id, boolean enabled) {
         WorkerScript script = WorkerScript.get(id)
         if (!script) throw new IllegalArgumentException('Script not found')
-        if (enabled && WorkerScript.findAllByJobTypeAndEnabled(script.jobType, true).any { it.id != script.id })
-            throw new IllegalStateException('An enabled script already owns job type: ' + script.jobType)
         script.enabled = enabled
         script.save(failOnError:true,flush:true)
     }
     void deleteScript(Long id, boolean force = false) {
         WorkerScript script = WorkerScript.get(id)
         if (!script) throw new IllegalArgumentException('Script not found')
+        if (ServerEventRule.countByScriptId(id) || ServerEventAction.countByScriptId(id))
+            throw new IllegalStateException('Script is referenced by event rules or event history. Remove those references before deleting.')
         List<ServerJob> referenced = ServerJob.findAllByAssignedScriptId(id)
+        referenced.addAll(ServerJob.list().findAll { job ->
+            try { new groovy.json.JsonSlurper().parseText(job.parametersJson ?: '{}').scriptId?.toString() == id.toString() }
+            catch (Exception ignored) { false }
+        })
+        referenced = referenced.unique { it.id }
         if (referenced && !force)
             throw new IllegalStateException('Script is referenced by job history. Select Force delete to override.')
         if (force) {

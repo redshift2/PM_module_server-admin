@@ -8,11 +8,13 @@ class ServerEventAction {
     String routeData = 'JOB_RESULTS'
     String status = 'QUEUED'
     String destination
+    Long scriptId // Snapshot at event creation
     String resultMessage
     Date dateCreated
     Date lastUpdated
     Date completedAt
     static constraints = {
+        scriptId nullable: true
         routeData nullable: true, maxSize: 32
         event nullable:false
         rule nullable:false

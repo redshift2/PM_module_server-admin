@@ -4,7 +4,7 @@ package serveradmin
 class JobResultRoute {
     static final Map<String, String> OPTIONS = [
         '3D_VIEWER':'3D Viewer', 'METADATA':'Metadata',
-        'ATTACHMENTS':'Attachments', 'THUMBNAILS':'Thumbnails',
+        'ATTACHMENTS':'Attachments', 'DRAWINGS':'Drawings', 'THUMBNAILS':'Thumbnails',
         'BOM':'BOM', 'QUALITY':'Quality / Inspection',
         'JOB_RESULTS':'Job Results Only'
     ].asImmutable()

@@ -180,6 +180,19 @@ class WorkerDispatchService {
                     job.save(failOnError:true, flush:true)
                 }
             }
+            else if (route == 'DRAWINGS') {
+                try {
+                    String message = grailsApplication.mainContext.getBean('plmGeneratedDrawingImportService')
+                        .importJobResult(job, dir.resolve(name))
+                    job.resultMessage = message
+                    job.save(failOnError:true, flush:true)
+                } catch (Exception ex) {
+                    log.error('Generated drawing import failed for job ' + job.id, ex)
+                    job.status = 'FAILED'
+                    job.resultMessage = ('Drawing import failed: ' + ex.message).take(2000)
+                    job.save(failOnError:true, flush:true)
+                }
+            }
             else if (route == 'ATTACHMENTS') {
                 try {
                     grailsApplication.mainContext.getBean('plmGeneratedAttachmentImportService')

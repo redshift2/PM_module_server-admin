@@ -10,16 +10,17 @@ class ServerEventJobPackageService {
     def grailsApplication
     ServerJobService serverJobService
 
-    void enqueueEventJob(String jobType, Long eventId, String actor, String routeData = null) {
+    void enqueueEventJob(String jobType, Long eventId, String actor, String routeData = null, Long scriptId = null) {
         ServerEvent event = ServerEvent.get(eventId)
         if (!event) throw new IllegalArgumentException('Event not found: ' + eventId)
-        if (!WorkerScript.findByJobTypeAndEnabled(jobType, true))
-            throw new IllegalArgumentException('No enabled script for: ' + jobType)
+        WorkerScript selected = scriptId == null ? WorkerScript.findByJobTypeAndEnabled(jobType, true) : WorkerScript.get(scriptId)
+        if (!selected || !selected.enabled || selected.jobType != jobType)
+            throw new IllegalArgumentException('No matching enabled script for: ' + jobType)
         String root = System.getenv('SERVER_ADMIN_JOB_STORAGE')
         if (!root) throw new IllegalStateException('SERVER_ADMIN_JOB_STORAGE not configured')
         Path dir = Paths.get(root).toAbsolutePath().normalize()
         Files.createDirectories(dir)
-        Map manifest = [routeData: JobResultRoute.validate(routeData ?: JobResultRoute.legacyDefault(jobType)), jobType:jobType, eventId:event.id, eventType:event.eventType,
+        Map manifest = [scriptId:selected.id, routeData: JobResultRoute.validate(routeData ?: JobResultRoute.legacyDefault(jobType)), jobType:jobType, eventId:event.id, eventType:event.eventType,
             sourceModule:event.sourceModule, entityType:event.entityType,
             entityId:event.entityId, actor:event.actor, message:event.message]
         Path cadFile = null
