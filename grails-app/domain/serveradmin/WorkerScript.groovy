@@ -6,6 +6,7 @@ class WorkerScript {
     String jobType
     String sha256
     String storageFile
+    String configurationSchemaJson = '{"fields":[]}'
     Boolean enabled = false
     String uploadedBy
     Date dateCreated
@@ -16,7 +17,8 @@ class WorkerScript {
         jobType blank: false, maxSize: 80
         sha256 blank: false, maxSize: 64
         storageFile blank: false, maxSize: 255
+        configurationSchemaJson nullable: true, maxSize: 8000
         uploadedBy nullable: true, maxSize: 120
     }
-    static mapping = { table 'server_admin_worker_script' }
+    static mapping = { table 'server_admin_worker_script'; configurationSchemaJson type: 'text' }
 }

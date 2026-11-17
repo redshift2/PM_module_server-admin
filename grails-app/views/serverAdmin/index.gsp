@@ -15,6 +15,7 @@
 <a href="${request.contextPath}/serverAdmin/events" class="${tab=='events'?'active':''}">Event Manager</a>
 <a href="${request.contextPath}/serverAdmin/emailServer" class="${tab=='email'?'active':''}">Email Server</a>
 <a href="${g.createLink(controller:'serverAdmin',action:'workers')}" class="${tab=='workers'?'active':''}">Workers</a>
+<a href="${g.createLink(controller:'serverAdmin',action:'templates')}" class="${tab=='templates'?'active':''}">Templates</a>
 </g:if>
 <!-- PM_ATTACHMENT_PAGES_V2 -->
 <g:if test="${isAdmin}">
@@ -137,9 +138,29 @@
 <option value="" selected="selected" disabled="disabled">Select job type</option>
 <g:each in="${validScriptJobTypes}" var="jt"><option value="${jt.encodeAsHTML()}">${jt.encodeAsHTML()}</option></g:each>
 </select><input type="file" name="file" accept=".py" required/><button class="sa-btn sa-primary">Upload Script</button></form>
-<table class="sa-table"><thead><tr><th>Name</th><th>Version</th><th>Job type</th><th>SHA-256</th><th>Enabled</th><th>Action</th></tr></thead><tbody>
-<g:each in="${scripts}" var="script"><tr><td>${script.name?.encodeAsHTML()}</td><td>${script.scriptVersion?.encodeAsHTML()}</td><td>${script.jobType?.encodeAsHTML()}</td><td>${script.sha256?.encodeAsHTML()}</td><td>${script.enabled}</td><td><form method="post" action="/serverAdmin/setWorkerScriptEnabled"><input type="hidden" name="id" value="${script.id}"/><input type="hidden" name="enabled" value="${script.enabled ? 'false':'true'}"/><button class="sa-btn">${script.enabled ? 'Disable':'Enable'}</button></form><form method="post" action="${request.contextPath}/serverAdmin/deleteWorkerScript" onsubmit="return confirm(this.forceDelete.checked ? 'FORCE DELETE this script and detach its historical job references? Active jobs cannot be overridden.' : 'Permanently delete this script?');"><input type="hidden" name="id" value="${script.id}"/><label class="sa-muted"><input type="checkbox" name="forceDelete" value="true"/> Force delete (override history restriction)</label><button class="sa-btn" type="submit">Delete Script</button></form></td></tr></g:each></tbody></table>
+<g:each in="${scripts.groupBy { it.jobType ?: 'Other' }.sort { a,b -> a.key <=> b.key }}" var="group">
+<details class="sa-script-group" style="margin:12px 0;border:1px solid var(--pm-border,#556);border-radius:6px;padding:12px">
+<summary style="cursor:pointer;font-weight:600">${group.key?.encodeAsHTML()} <span class="sa-muted">(${group.value.size()} scripts) ▾</span></summary>
+<table class="sa-table"><thead><tr><th>Name</th><th>Version</th><th>SHA-256</th><th>Enabled</th><th>Action</th></tr></thead><tbody>
+<g:each in="${group.value}" var="script"><tr><td>${script.name?.encodeAsHTML()}</td><td>${script.scriptVersion?.encodeAsHTML()}</td><td>${script.sha256?.encodeAsHTML()}</td><td>${script.enabled}</td><td><form method="post" action="${request.contextPath}/serverAdmin/setWorkerScriptEnabled"><input type="hidden" name="id" value="${script.id}"/><input type="hidden" name="enabled" value="${script.enabled ? 'false':'true'}"/><button class="sa-btn">${script.enabled ? 'Disable':'Enable'}</button></form><form method="post" action="${request.contextPath}/serverAdmin/deleteWorkerScript" onsubmit="return confirm(this.forceDelete.checked ? 'FORCE DELETE this script and detach its historical job references? Active jobs cannot be overridden.' : 'Permanently delete this script?');"><input type="hidden" name="id" value="${script.id}"/><label class="sa-muted"><input type="checkbox" name="forceDelete" value="true"/> Force delete (override history restriction)</label><button class="sa-btn" type="submit">Delete Script</button></form></td></tr></g:each></tbody></table>
+</details></g:each>
 </div></section></g:elseif>
+<g:elseif test="${tab=='templates'}">
+<section class="sa-card"><h2>Templates</h2><div class="sa-body">
+<p class="sa-muted">Upload reusable FreeCAD and drawing templates. Templates are not version controlled. Uploading a file with the same name and category replaces it.</p>
+<form method="post" action="${request.contextPath}/serverAdmin/uploadTemplate" enctype="multipart/form-data">
+<select name="category" required><option value="FREECAD">FreeCAD Template</option><option value="DRAWING">Drawing Template</option></select>
+<input type="file" name="file" required accept=".FCStd,.fcstd,.svg,.dxf,.pdf"/>
+<input name="description" maxlength="500" placeholder="Description (optional)"/>
+<button type="submit" class="sa-btn sa-primary">Upload Template</button>
+</form>
+<table class="sa-table"><thead><tr><th>Filename</th><th>Type</th><th>Description</th><th>Size</th><th>Uploaded</th><th>Actions</th></tr></thead><tbody>
+<g:each in="${templates}" var="item"><tr><td>${item.name?.encodeAsHTML()}</td><td>${item.category?.encodeAsHTML()}</td><td>${item.description?.encodeAsHTML()}</td><td>${item.size} bytes</td><td>${item.uploadedAt?.encodeAsHTML()}</td><td>
+<a class="sa-btn" href="${request.contextPath}/serverAdmin/downloadTemplate?id=${item.id?.encodeAsURL()}">Download</a>
+<form method="post" action="${request.contextPath}/serverAdmin/deleteTemplate" onsubmit="return confirm('Delete this template?');" style="display:inline"><input type="hidden" name="id" value="${item.id}"/><button type="submit" class="sa-btn">Delete</button></form>
+</td></tr></g:each>
+</tbody></table></div></section>
+</g:elseif>
 <g:elseif test="${tab=='email'}"><section class="sa-card"><h2>Email Server Connection</h2><div class="sa-body">
 <p>SMTP configuration is read from server environment variables. Passwords are never displayed.</p>
 <table class="sa-table"><tr><th>Connection</th><td>${smtpConfigured ? 'Configured (not connection-tested)' : 'Not configured'}</td></tr><tr><th>Host</th><td>${smtpHost?.encodeAsHTML()}</td></tr><tr><th>Port</th><td>${smtpPort?.encodeAsHTML()}</td></tr><tr><th>From</th><td>${smtpFrom?.encodeAsHTML()}</td></tr></table>

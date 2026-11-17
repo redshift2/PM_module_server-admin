@@ -5,6 +5,7 @@ import org.springframework.web.multipart.MultipartFile
 import java.nio.file.*
 import java.security.MessageDigest
 import java.util.UUID
+import groovy.json.JsonOutput
 
 @Transactional
 class WorkerScriptService {
@@ -15,6 +16,7 @@ class WorkerScriptService {
         String root = System.getenv('SERVER_ADMIN_SCRIPT_STORAGE')
         if (!root) throw new IllegalStateException('SERVER_ADMIN_SCRIPT_STORAGE must be configured')
         byte[] bytes = file.bytes
+        Map embeddedSchema = EmbeddedWorkerScriptSchema.extract(bytes)
         String hash = MessageDigest.getInstance('SHA-256').digest(bytes).encodeHex().toString()
         Path dir = Paths.get(root).toAbsolutePath().normalize()
         Files.createDirectories(dir)
@@ -23,7 +25,8 @@ class WorkerScriptService {
         Files.write(target, bytes, StandardOpenOption.CREATE_NEW)
         try {
             return new WorkerScript(name:name, scriptVersion:version, jobType:jobType,
-                sha256:hash, storageFile:stored, uploadedBy:username, enabled:false).save(failOnError:true,flush:true)
+                sha256:hash, storageFile:stored, uploadedBy:username, enabled:false,
+                configurationSchemaJson:JsonOutput.toJson(embeddedSchema ?: [fields:[]])).save(failOnError:true,flush:true)
         } catch(Exception e) { Files.deleteIfExists(target); throw e }
     }
     void setEnabled(Long id, boolean enabled) {

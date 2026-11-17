@@ -24,6 +24,7 @@ class ServerAdminController {
     ServerEventActionService serverEventActionService
     ServerAdminEmailService serverAdminEmailService
     RemoteWorkerService remoteWorkerService
+    ServerTemplateService serverTemplateService
     WorkerScriptService workerScriptService
     WorkerScriptCatalogService workerScriptCatalogService
     OidcProviderService oidcProviderService
@@ -270,11 +271,47 @@ class ServerAdminController {
     }
 
     @Secured(['ROLE_ADMIN'])
+    def templates() {
+        render(view:'index', model:[tab:'templates', isAdmin:true, templates:serverTemplateService.listTemplates()])
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def uploadTemplate() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try {
+            def item = serverTemplateService.upload(request.getFile('file'), params.category as String, params.description as String)
+            flash.message = "Template uploaded: ${item.name}"
+        } catch (Exception ex) { flash.error = ex.message }
+        response.sendRedirect(request.contextPath + '/serverAdmin/templates')
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def downloadTemplate() {
+        try {
+            def item = serverTemplateService.getTemplate(params.id as String)
+            if (!item) { response.sendError(404); return }
+            response.contentType = 'application/octet-stream'
+            response.setHeader('Content-Disposition', 'attachment; filename="' + item.name.replace('"','') + '"')
+            response.setContentLengthLong(item.file.length())
+            item.file.withInputStream { stream -> response.outputStream << stream }
+            response.outputStream.flush()
+        } catch (Exception ex) { response.sendError(404) }
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def deleteTemplate() {
+        if (request.method != 'POST') { response.sendError(405); return }
+        try { serverTemplateService.deleteTemplate(params.id as String); flash.message = 'Template deleted.' }
+        catch (Exception ex) { flash.error = ex.message }
+        response.sendRedirect(request.contextPath + '/serverAdmin/templates')
+    }
+
+    @Secured(['ROLE_ADMIN'])
     def workers() {
         render(view:'index', model:[tab:'workers', isAdmin:true,
             workers:RemoteWorker.list(sort:'dateCreated',order:'desc'),
             scripts:WorkerScript.list(sort:'dateCreated',order:'desc'),
-            validScriptJobTypes: ((['CAD_TO_GLB', 'CAD_TO_X3D', 'CAD_TO_STEP', 'CAD_TO_DRW', 'CAD_TO_META', 'CAD_PROPERTIES'] +
+            validScriptJobTypes: ((['CAD_TO_GLB', 'CAD_TO_X3D', 'CAD_TO_STEP', 'CAD_TO_DRW', 'CAD_TO_META', 'CAD_PROPERTIES', 'CAD_REMOTE_JOB'] +
                 WorkerScript.list().collect { it.jobType } +
                 ServerJob.list().collect { it.jobType } +
                 (session.workerScriptCatalog instanceof List ? session.workerScriptCatalog.collect { it.jobType } : []))
