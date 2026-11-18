@@ -3,6 +3,7 @@ package serveradmin
 class RemoteWorker {
     String workerId
     String workerName
+    String buildVersion
     String publicKeyBase64
     String publicKeyFingerprint
     String status = 'PENDING_APPROVAL'
@@ -15,6 +16,7 @@ class RemoteWorker {
     static constraints = {
         workerId unique: true, blank: false, maxSize: 60
         workerName blank: false, maxSize: 120
+        buildVersion nullable: true, maxSize: 60
         publicKeyBase64 blank: false, maxSize: 256
         publicKeyFingerprint blank: false, maxSize: 64
         status inList: ['PENDING_APPROVAL','APPROVED','REJECTED','REVOKED']

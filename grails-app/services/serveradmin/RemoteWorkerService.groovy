@@ -23,16 +23,23 @@ class RemoteWorkerService {
         KeyFactory.getInstance('Ed25519').generatePublic(new X509EncodedKeySpec(encoded))
         String fingerprint = MessageDigest.getInstance('SHA-256').digest(encoded).encodeHex().toString()
         RemoteWorker existing = RemoteWorker.findByPublicKeyFingerprint(fingerprint)
-        if (existing) return existing // no re-approval on key reuse
+        if (existing) {
+            String version = payload.buildVersion?.toString()?.trim()
+            if (version && version.length() <= 60) {
+                existing.buildVersion = version
+                existing.save(failOnError:true, flush:true)
+            }
+            return existing // no re-approval on key reuse
+        }
         List caps = (payload.capabilities instanceof List) ? payload.capabilities : []
         if (caps.size() > 30 || caps.any { !(it instanceof String) || !(it in ALLOWED) }) throw new IllegalArgumentException('Invalid capabilities')
-        new RemoteWorker(workerId: UUID.randomUUID().toString(), workerName: name,
+        new RemoteWorker(buildVersion: (payload.buildVersion?.toString()?.trim()?.take(60)), workerId: UUID.randomUUID().toString(), workerName: name,
             publicKeyBase64: key, publicKeyFingerprint: fingerprint,
             capabilities: JsonOutput.toJson(caps.unique()),
             maxConcurrentJobs: Math.min(16, Math.max(1, (payload.maxConcurrentJobs ?: 1) as Integer))).save(failOnError:true, flush:true)
     }
 
-    RemoteWorker verifyHeartbeat(String id, String timestamp, String nonce, String signatureB64) {
+    RemoteWorker verifyHeartbeat(String id, String timestamp, String nonce, String signatureB64, String buildVersion = null) {
         RemoteWorker worker = RemoteWorker.findByWorkerId(id)
         if (!worker || worker.status != 'APPROVED') throw new SecurityException('Worker not approved')
         long ts
@@ -46,6 +53,7 @@ class RemoteWorkerService {
         if (!verifier.verify(sig)) throw new SecurityException('Invalid signature')
         worker.lastNonce = nonce
         worker.lastSeen = new Date()
+        if (buildVersion?.trim() && buildVersion.length() <= 60) worker.buildVersion = buildVersion.trim()
         worker.save(failOnError:true, flush:true)
         worker
     }

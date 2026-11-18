@@ -341,7 +341,8 @@ class ServerAdminController {
             def body = request.JSON
             RemoteWorker worker = remoteWorkerService.verifyHeartbeat(
                 body.workerId as String, body.timestamp as String,
-                body.nonce as String, body.signature as String)
+                body.nonce as String, body.signature as String,
+                body.buildVersion as String)
             render(contentType:'application/json', text:groovy.json.JsonOutput.toJson(
                 [status:'APPROVED', serverTime:System.currentTimeMillis()]))
         } catch (Exception ex) { response.sendError(403, 'Worker authentication failed') }
