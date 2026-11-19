@@ -35,6 +35,30 @@ class ServerAdminController {
         SecurityContextHolder.context?.authentication?.authorities?.any { it.authority == 'ROLE_ADMIN' } ?: false
     }
 
+    ServerStatusService serverStatusService
+
+    // All three endpoints require ROLE_ADMIN, independently of tab visibility.
+    @Secured(['ROLE_ADMIN'])
+    def serverStatus() {
+        render(view: 'index', model: [tab: 'status', isAdmin: true])
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def serverStatusData() {
+        response.setHeader('Cache-Control', 'no-store')
+        render(contentType: 'application/json', text: groovy.json.JsonOutput.toJson(serverStatusService.snapshot()))
+    }
+
+    @Secured(['ROLE_ADMIN'])
+    def downloadServerLogs() {
+        response.contentType = 'text/plain; charset=UTF-8'
+        response.setHeader('Cache-Control', 'no-store')
+        response.setHeader('Content-Disposition', 'attachment; filename="parts-manager-server.log"')
+        response.outputStream.withStream { out ->
+            out.write(serverStatusService.downloadLogs().getBytes('UTF-8'))
+        }
+    }
+
     def index() { renderServerInfo() }
 
     def serverInfo() { renderServerInfo() }

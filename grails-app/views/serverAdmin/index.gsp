@@ -11,6 +11,7 @@
 <a href="${request.contextPath}/serverAdmin/jobQueue" class="${tab=='jobs'?'active':''}">Job Queue</a>
 <g:if test="${isAdmin}">
 <a href="/serverAdmin/authorization" class="${tab=='auth'?'active':''}">Authorization</a>
+<a href="${request.contextPath}/serverAdmin/serverStatus" class="${tab=='status'?'active':''}">Server Status</a>
 <a href="${request.contextPath}/serverAdmin/maintenance" class="${tab=='maintenance'?'active':''}">Server Maintenance</a>
 <a href="${request.contextPath}/serverAdmin/events" class="${tab=='events'?'active':''}">Event Manager</a>
 <a href="${request.contextPath}/serverAdmin/emailServer" class="${tab=='email'?'active':''}">Email Server</a>
@@ -31,6 +32,62 @@
 <g:each in="${modules}" var="module"><tr><td>${module.name?.encodeAsHTML()}</td><td>${module.version?.encodeAsHTML()}</td><td>${module.type?.encodeAsHTML()}</td></tr></g:each>
 <g:if test="${!modules}"><tr><td colspan="3">Module information is unavailable.</td></tr></g:if>
 </tbody></table><p class="sa-muted">Application modules are detected from deployed classes; their versions are shown when build metadata is available.</p></div></section></g:if>
+<g:elseif test="${tab=='status'}">
+<section class="sa-card"><h2>Server Status <button type="button" class="sa-btn" onclick="pmStatusRefresh()">Refresh</button></h2>
+<div class="sa-body">
+<style>
+.pm-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:14px 0}
+.pm-status-card{padding:16px;border:1px solid #526276;border-radius:8px;background:rgba(120,145,170,.08)}
+.pm-status-card h3{margin:0 0 10px}.pm-status-card p{margin:6px 0}
+.pm-status-card progress{width:100%;height:14px}
+#pm-server-log{width:100%;height:390px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#101923;color:#dce8f5;padding:14px;border-radius:7px;font:12px/1.5 monospace;box-sizing:border-box}
+</style>
+<p class="sa-muted">Live statistics update every 5 seconds. User/session counts require Spring Security session tracking; unavailable metrics are shown as N/A.</p>
+<div class="pm-status-grid">
+<div class="pm-status-card"><h3>CPU</h3><p>System: <strong id="pm-cpu-system">—</strong></p><progress id="pm-cpu-bar" max="100" value="0"></progress><p>JVM process: <strong id="pm-cpu-jvm">—</strong></p><p>Processors: <span id="pm-cpu-cores">—</span></p><p>Load average: <span id="pm-cpu-load">—</span></p></div>
+<div class="pm-status-card"><h3>Memory</h3><p>JVM heap: <strong id="pm-heap">—</strong></p><progress id="pm-heap-bar" max="100" value="0"></progress><p>System RAM: <span id="pm-ram">—</span></p></div>
+<div class="pm-status-card"><h3>Users</h3><p>Logged-in users: <strong id="pm-users-online">—</strong></p><p>Active sessions: <span id="pm-users-sessions">—</span></p><p>Registered users: <span id="pm-users-total">—</span></p></div>
+<div class="pm-status-card"><h3>Server</h3><p>Uptime: <strong id="pm-uptime">—</strong></p><p>Java: <span id="pm-java">—</span></p><p>OS: <span id="pm-os">—</span></p></div>
+<div class="pm-status-card"><h3>Database Storage</h3><p class="sa-muted">/database</p><p>Disk used: <strong id="pm-db-disk">—</strong></p><progress id="pm-db-bar" max="100" value="0"></progress><p>Available: <span id="pm-db-free">—</span></p><p>Database files: <strong id="pm-db-data">—</strong></p></div>
+<div class="pm-status-card"><h3>Vault Storage</h3><p class="sa-muted">/root/intranetFilesDev</p><p>Disk used: <strong id="pm-vault-disk">—</strong></p><progress id="pm-vault-bar" max="100" value="0"></progress><p>Available: <span id="pm-vault-free">—</span></p><p>Vault files: <strong id="pm-vault-data">—</strong></p></div>
+</div>
+<h3>Server Logs</h3><p class="sa-muted" id="pm-log-message"></p>
+<p><a class="sa-btn" href="${request.contextPath}/serverAdmin/downloadServerLogs">Download Logs</a></p>
+<pre id="pm-server-log" aria-label="Recent server logs">Loading…</pre>
+</div></section>
+<script>
+(function(){
+const root='${request.contextPath}';
+const el=id=>document.getElementById(id);
+const put=(id,v)=>{el(id).textContent=v===null||v===undefined?'N/A':String(v)};
+const bytes=v=>v===null||v===undefined||v<0?'N/A':(v/1048576).toFixed(1)+' MiB';
+const pct=v=>v===null||v===undefined?'N/A':v+'%';
+const bar=(id,value,total)=>{el(id).value=total>0?Math.min(100,100*value/total):0};
+window.pmStatusRefresh=async function(){
+try{
+const response=await fetch(root+'/serverAdmin/serverStatusData',{credentials:'same-origin',cache:'no-store'});
+if(!response.ok)throw new Error('HTTP '+response.status);
+const d=await response.json();
+put('pm-cpu-system',pct(d.cpu.systemPercent));put('pm-cpu-jvm',pct(d.cpu.processPercent));put('pm-cpu-cores',d.cpu.cores);put('pm-cpu-load',d.cpu.loadAverage);
+el('pm-cpu-bar').value=d.cpu.systemPercent||0;
+put('pm-heap',bytes(d.memory.heapUsed)+' / '+bytes(d.memory.heapMax));bar('pm-heap-bar',d.memory.heapUsed,d.memory.heapMax);
+put('pm-ram',bytes(d.memory.physicalTotal-d.memory.physicalFree)+' / '+bytes(d.memory.physicalTotal));
+put('pm-users-online',d.users.loggedInUsers);put('pm-users-sessions',d.users.activeSessions);put('pm-users-total',d.users.registeredUsers);
+const mins=Math.floor(d.server.uptimeMillis/60000);put('pm-uptime',Math.floor(mins/1440)+'d '+Math.floor(mins%1440/60)+'h '+mins%60+'m');
+put('pm-java',d.server.javaVersion);put('pm-os',d.server.os);
+for(const [key,info] of [['db',d.storage.database],['vault',d.storage.vault]]){
+ if(!info||!info.available){put('pm-'+key+'-disk',info?.message||'N/A');put('pm-'+key+'-free','N/A');put('pm-'+key+'-data','N/A');bar('pm-'+key+'-bar',0,0);continue;}
+ put('pm-'+key+'-disk',bytes(info.total-info.free)+' / '+bytes(info.total));bar('pm-'+key+'-bar',info.total-info.free,info.total);
+ put('pm-'+key+'-free',bytes(info.usable));put('pm-'+key+'-data',bytes(info.dataBytes)+(info.complete?'':' (partial scan)'));
+ }
+put('pm-log-message',d.logs.message||'Recent log output (last 150 KiB).');
+const log=el('pm-server-log');if(log.textContent!==d.logs.text){const bottom=log.scrollTop+log.clientHeight>=log.scrollHeight-30;log.textContent=d.logs.text||'(No log entries)';if(bottom)log.scrollTop=log.scrollHeight;}
+}catch(e){put('pm-log-message','Status refresh failed: '+e.message)}
+};
+window.pmStatusRefresh();setInterval(window.pmStatusRefresh,5000);
+})();
+</script>
+</g:elseif>
 <g:elseif test="${tab=='jobs'}"><section class="sa-card"><h2>Job Queue</h2><div class="sa-body">
 <p class="sa-muted">Jobs are assigned to approved workers with matching capabilities and an enabled script.</p>
 <g:if test="${isAdmin}">
