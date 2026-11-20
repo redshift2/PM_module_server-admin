@@ -8,7 +8,11 @@ import java.security.MessageDigest
 @Transactional
 class WorkerDispatchService {
     def grailsApplication
-    static final long MAX_RESULT = 100L * 1024L * 1024L
+    static long maxResultSize() {
+        String value = System.getenv('SERVER_ADMIN_MAX_RESULT_SIZE') ?: '4294967296'
+        try { return Long.parseLong(value) }
+        catch (NumberFormatException ex) { throw new IllegalStateException('Invalid SERVER_ADMIN_MAX_RESULT_SIZE', ex) }
+    }
 
     private boolean matches(RemoteWorker worker, String type) {
         def caps = new JsonSlurper().parseText(worker.capabilities ?: '[]')
@@ -122,17 +126,16 @@ class WorkerDispatchService {
         job.save(failOnError:true, flush:true)
     }
 
-    void complete(RemoteWorker worker, Long id, byte[] bytes) {
+    void complete(RemoteWorker worker, Long id, Path uploadedFile) {
         ServerJob job = owned(worker,id)
-        if (bytes == null || bytes.length == 0 || bytes.length > MAX_RESULT) throw new IllegalArgumentException('Invalid result size')
+        if (uploadedFile == null || !Files.isRegularFile(uploadedFile) || Files.size(uploadedFile) == 0 || Files.size(uploadedFile) > maxResultSize()) throw new IllegalArgumentException('Invalid result size')
         String root = System.getenv('SERVER_ADMIN_JOB_STORAGE')
         if (!root) throw new IllegalStateException('Job storage not configured')
         Path dir = Paths.get(root).toAbsolutePath().normalize()
         Files.createDirectories(dir)
         // Validate ZIP central directory before accepting results.
-        Path tmp = Files.createTempFile(dir, 'result-upload-', '.tmp')
+        Path tmp = uploadedFile
         try {
-            Files.write(tmp, bytes)
             java.util.zip.ZipFile zip = new java.util.zip.ZipFile(tmp.toFile())
             try {
                 if (zip.size() == 0 || zip.size() > 10000) throw new IllegalArgumentException('Invalid ZIP entries')

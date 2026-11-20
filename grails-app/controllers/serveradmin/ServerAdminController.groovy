@@ -467,16 +467,39 @@ class ServerAdminController {
     @Secured(['permitAll'])
     def workerResult() {
         if (request.method != 'POST') { response.sendError(405); return }
+        java.nio.file.Path tmp = null
         try {
             Long id = params.long('id')
-            if (id == null || request.contentLengthLong > WorkerDispatchService.MAX_RESULT) { response.sendError(413); return }
-            byte[] bytes = request.inputStream.bytes
-            String digest = java.security.MessageDigest.getInstance('SHA-256').digest(bytes).encodeHex().toString()
-            RemoteWorker worker = signedWorker('result',"${id}:${digest}")
-            workerDispatchService.complete(worker,id,bytes)
+            if (id == null) { response.sendError(400); return }
+            long limit = WorkerDispatchService.maxResultSize()
+            if (request.contentLengthLong > limit) { response.sendError(413); return }
+            String root = System.getenv('SERVER_ADMIN_JOB_STORAGE')
+            if (!root) throw new IllegalStateException('Job storage not configured')
+            java.nio.file.Path dir = java.nio.file.Paths.get(root).toAbsolutePath().normalize()
+            java.nio.file.Files.createDirectories(dir)
+            tmp = java.nio.file.Files.createTempFile(dir, 'result-upload-', '.tmp')
+            java.security.MessageDigest sha = java.security.MessageDigest.getInstance('SHA-256')
+            long received = 0L
+            byte[] buffer = new byte[1024 * 1024]
+            java.io.InputStream input = request.inputStream
+            java.io.OutputStream output = java.nio.file.Files.newOutputStream(tmp)
+            try {
+                int count
+                while ((count = input.read(buffer)) != -1) {
+                    received += count
+                    if (received > limit) { response.sendError(413); return }
+                    output.write(buffer, 0, count)
+                    sha.update(buffer, 0, count)
+                }
+            } finally { output.close() }
+            if (received == 0L) { response.sendError(400); return }
+            String digest = sha.digest().encodeHex().toString()
+            RemoteWorker worker = signedWorker('result', "${id}:${digest}")
+            workerDispatchService.complete(worker, id, tmp)
             workerJson([ok:true])
         } catch (SecurityException ex) { response.sendError(403) }
         catch (Exception ex) { log.error('Worker result failed',ex); response.sendError(400) }
+        finally { if (tmp != null) java.nio.file.Files.deleteIfExists(tmp) }
     }
 
     @Secured(['ROLE_ADMIN'])
